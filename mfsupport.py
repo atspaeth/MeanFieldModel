@@ -169,10 +169,11 @@ def find_fps(r_top, F, Finv, atol=0.1):
     return stable_fps, []
 
 
-def reset_nest(dt):
+def reset_nest(dt, seed=None):
     nest.ResetKernel()
     nest.local_num_threads = 10
     nest.resolution = dt
+    nest.rng_seed = seed if seed is not None else np.random.randint(2**31)
 
 
 def firing_rates(*, q, M=500, sigma_max=None, R_max=None, cache=True,
@@ -195,7 +196,7 @@ def firing_rates(*, q, M=500, sigma_max=None, R_max=None, cache=True,
 @memory.cache(ignore=['progress_interval'])
 def sim_neurons(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
                 warmup_time=0.0, warmup_rate=None, warmup_steps=10,
-                connectivity=None, progress_interval=1e3):
+                connectivity=None, progress_interval=1e3, seed=None):
     '''
     Simulate M Izhikevich neurons using NEST. They are receiving Poisson
     inputs with connection strength q and rate R, and optionally connected
@@ -206,7 +207,7 @@ def sim_neurons(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
     if M is None:
         M = len(R)
 
-    reset_nest(dt=dt)
+    reset_nest(dt=dt, seed=seed)
 
     neurons = nest.Create(model, n=M, params=model_params)
     if I_ext is not None:
