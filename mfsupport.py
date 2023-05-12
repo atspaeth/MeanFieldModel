@@ -175,30 +175,26 @@ def reset_nest(dt):
     nest.resolution = dt
 
 
-def firing_rates(*, q, M=500, sigma_max=None, R_max=None,
-                 uniform_input=False, cache=True, **kwargs):
+def firing_rates(*, q, M=500, sigma_max=None, R_max=None, cache=True,
+                 return_times=False, uniform_input=False, **kwargs):
     if R_max is None and sigma_max is not None:
         R_max = 1e3 * (sigma_max / q)**2
     elif (R_max is None) == (sigma_max is None):
         raise ValueError('Either R_max or sigma_max must be given!')
 
     R = R_max if uniform_input else np.linspace(0, R_max, num=M)
+
     kwargs['q'] = q
     kwargs['R'] = R
     kwargs['M'] = M
-    match cache:
-        case True:
-            return R, sim_neurons(**kwargs)
-        case False:
-            return R, sim_neurons.func(**kwargs)
-        case None:
-            return R, sim_neurons.call(**kwargs)[0]
+    sd = sim_neurons(**kwargs) if cache else sim_neurons.func(**kwargs)
+
+    return R, (sd if return_times else sd.rates('Hz'))
 
 
 @memory.cache(ignore=['progress_interval'])
 def sim_neurons(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
-                warmup_time=None, warmup_rate=None, warmup_steps=10,
-                return_Isyn=False, return_times=False,
+                warmup_time=0.0, warmup_rate=None, warmup_steps=10,
                 connectivity=None, progress_interval=1e3):
     '''
     Simulate M Izhikevich neurons using NEST. They are receiving Poisson
@@ -226,9 +222,6 @@ def sim_neurons(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
     else:
         raise ValueError('R must be a scalar or a vector of length M.')
 
-    if warmup_time is None:
-        warmup_time = 0.0
-
     nest.Connect(noise, neurons, conn,
                  dict(weight=psp_corrected_weight(neurons[0], q)))
     nest.Connect(noise, neurons, conn,
@@ -255,12 +248,6 @@ def sim_neurons(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
                 pbar.update(warmup_time / warmup_steps)
         noise.rate = base_rate
 
-    if return_Isyn:
-        Isyn = nest.Create('multimeter',
-                           params=dict(record_from=['I_syn_ex', 'I_syn_in'],
-                                       interval=dt))
-        nest.Connect(Isyn, neurons)
-
     if progress_interval is None:
         nest.Simulate(T)
     else:
@@ -272,20 +259,9 @@ def sim_neurons(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
                 pbar.update(progress_interval)
         pbar.close()
 
-    sd = ba.SpikeData(rec, neurons, length=T+warmup_time)
-    sd = sd.subtime(warmup_time, ...)
-
-    if return_times:
-        if return_Isyn:
-            return sd, Isyn
-        return sd
-
-    rates = sd.rates('Hz')
-
-    if return_Isyn:
-        return rates, Isyn
-    else:
-        return rates
+    # Create SpikeData and trim off the warmup time.
+    return ba.SpikeData(rec, neurons, length=T+warmup_time
+                        ).subtime(warmup_time, ...)
 
 
 def voltage_slew_to_current(neuron, slew):
