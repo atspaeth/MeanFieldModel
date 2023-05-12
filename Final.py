@@ -345,7 +345,7 @@ print('Upper bifurcation has stable FR =',
 
 M = 10000
 dt = 0.1
-T = 1e5
+T = 3e3
 model = 'iaf_psc_delta'
 
 def mean_field_fixed_points(N, R_background, q):
@@ -368,19 +368,20 @@ def sim_fixed_points(N, R_background, q, annealed_average=False):
             N, q, synapse_params=dict(delay=5.0))
     same_args = dict(model=model, q=q, dt=dt, T=T, M=M, R_max=R_background,
                      progress_interval=10.0, uniform_input=True,
-                     connectivity=connectivity)
+                     cache=False, connectivity=connectivity,
+                     return_times=True)
     warmup_sigma = 3.0
     warmup_rate = 1e3 * (warmup_sigma / q)**2
-    R, top = firing_rates(warmup_time=1e3, warmup_rate=warmup_rate,
-                          warmup_steps=25, **same_args)
-    R, bot = firing_rates(**same_args)
-    return np.array([bot.mean(), top.mean()])
+    R, sd_top = firing_rates(warmup_time=0.5e3, **same_args)
+    R, sd_bot = firing_rates(**same_args)
+    return np.array([sd_bot.subtime(1e3, ...).rates('Hz').mean(),
+                     sd_top.subtime(1e3, ...).rates('Hz').mean()])
 
 N_theo = np.arange(30, 91)
 N_sim = np.linspace(30, 90, 8).astype(int)
 R_backgrounds = [10e3, 0.1e3, 0.1e3]
 qs = [3.0, 5.0, 5.0]
-aas = [False, False, True]
+aas = [False, False]
 conditions = list(zip(R_backgrounds, qs, aas))
 
 fp_theo, fp_sim = [], []
