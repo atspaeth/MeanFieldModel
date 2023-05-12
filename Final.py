@@ -370,8 +370,6 @@ def sim_fixed_points(N, R_background, q, annealed_average=False):
                      progress_interval=10.0, uniform_input=True,
                      cache=False, connectivity=connectivity,
                      return_times=True)
-    warmup_sigma = 3.0
-    warmup_rate = 1e3 * (warmup_sigma / q)**2
     R, sd_top = firing_rates(warmup_time=0.5e3, **same_args)
     R, sd_bot = firing_rates(**same_args)
     return np.array([sd_bot.subtime(1e3, ...).rates('Hz').mean(),

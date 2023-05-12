@@ -169,15 +169,15 @@ def find_fps(r_top, F, Finv, atol=0.1):
     return stable_fps, []
 
 
-def reset_nest(dt, seed=None):
+def reset_nest(dt, seed):
     nest.ResetKernel()
     nest.local_num_threads = 10
     nest.resolution = dt
-    nest.rng_seed = seed if seed is not None else np.random.randint(2**31)
+    nest.rng_seed = seed
 
 
 def firing_rates(*, q, M=500, sigma_max=None, R_max=None, cache=True,
-                 return_times=False, uniform_input=False, **kwargs):
+                 return_times=False, uniform_input=False, seed=42, **kwargs):
     if R_max is None and sigma_max is not None:
         R_max = 1e3 * (sigma_max / q)**2
     elif (R_max is None) == (sigma_max is None):
@@ -185,10 +185,8 @@ def firing_rates(*, q, M=500, sigma_max=None, R_max=None, cache=True,
 
     R = R_max if uniform_input else np.linspace(0, R_max, num=M)
 
-    kwargs['q'] = q
-    kwargs['R'] = R
-    kwargs['M'] = M
-    sd = sim_neurons(**kwargs) if cache else sim_neurons.func(**kwargs)
+    sim = sim_neurons if cache else sim_neurons.func
+    sd = sim(q=q, R=R, M=M, seed=seed, **kwargs)
 
     return R, (sd if return_times else sd.rates('Hz'))
 
@@ -196,7 +194,7 @@ def firing_rates(*, q, M=500, sigma_max=None, R_max=None, cache=True,
 @memory.cache(ignore=['progress_interval'])
 def sim_neurons(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
                 warmup_time=0.0, warmup_rate=None, warmup_steps=10,
-                connectivity=None, progress_interval=1e3, seed=None):
+                connectivity=None, progress_interval=1e3, seed=42):
     '''
     Simulate M Izhikevich neurons using NEST. They are receiving Poisson
     inputs with connection strength q and rate R, and optionally connected
