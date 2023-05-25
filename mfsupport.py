@@ -291,15 +291,17 @@ def psp_corrected_weight(neuron, q):
     the synaptic weight which should be used instead so that this neuron
     will receive an equivalent voltage injection from its PSCs.
     '''
-    model = neuron[0].model.split('_')
-    # All current Izhikevich neurons have delta synapses.
-    if model[0] == 'izhikevich':
-        return q
+    # Modify the base model name to match the name scheme of the others.
+    if neuron[0].model == 'izhikevich':
+        model = ['izhikevich', 'psc', 'delta']
+    else:
+        model = neuron[0].model.split('_')
+
     # For PSC neurons, it doesn't matter whether they're HH or I&F, but the
     # shape of the PSC does matter. Can assume that all such neurons have
     # membrane capacitance C_m as well as synaptic time constants, except
     # the ones with delta synapses, which inject voltage like Izhikevich.
-    elif model[1] == 'psc':
+    if model[1] == 'psc':
         postfix = '_ex' if q > 0 else '_in'
         if len(model) < 3:
             pass  # skip to the NotImplemented at the end
