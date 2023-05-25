@@ -11,6 +11,12 @@ from joblib import Memory
 import matplotlib.pyplot as plt
 
 
+from pynestml.frontend.pynestml_frontend import generate_nest_target
+generate_nest_target('models/', '/tmp/nestml-mfsupport/',
+                     module_name='mfmodule')
+nest.Install('mfmodule')
+
+
 memory = Memory(location='.cache', verbose=0)
 
 
@@ -152,7 +158,8 @@ def find_fps(r_top, F, Finv, atol=0.1):
     length 1 and 0 depending on the location in parameter space.
     '''
     # First look for two stable FPs since we know at least one exists.
-    stable_fps = [optimize.fixed_point(F, x, method='iteration')
+    stable_fps = [optimize.fixed_point(F, x, method='iteration',
+                                       maxiter=5000)
                   for x in [0, r_top]]
 
     # Then if they are far enough apart to be considered distinct,
