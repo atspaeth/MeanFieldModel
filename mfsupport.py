@@ -1,7 +1,9 @@
 import itertools
 import pickle
+import torch
 import numpy as np
 from scipy import stats, signal, optimize, special, sparse
+import bindsnet.network as bn
 import braingeneers.analysis as ba
 from tqdm import tqdm
 import nest
@@ -183,7 +185,7 @@ def reset_nest(dt, seed):
     nest.rng_seed = seed
 
 
-def firing_rates(*, q, M=500, sigma_max=None, R_max=None, cache=True,
+def firing_rates(model, q, M=500, sigma_max=None, R_max=None, cache=True,
                  return_times=False, uniform_input=False, seed=42, **kwargs):
     if R_max is None and sigma_max is not None:
         R_max = 1e3 * (sigma_max / q)**2
@@ -192,10 +194,61 @@ def firing_rates(*, q, M=500, sigma_max=None, R_max=None, cache=True,
 
     R = R_max if uniform_input else np.linspace(0, R_max, num=M)
 
-    sim = sim_neurons if cache else sim_neurons.func
-    sd = sim(q=q, R=R, M=M, seed=seed, **kwargs)
+    sim = (sim_neurons_bindsnet
+           if isinstance(model, bn.nodes.Nodes)
+           else sim_neurons)
+    sim = sim if cache else sim.func
+    sd = sim(model=model, q=q, R=R, M=M, seed=seed, **kwargs)
 
     return R, (sd if return_times else sd.rates('Hz'))
+
+
+@memory.cache(ignore=['device'])
+def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
+                         model_params={}, device='cuda'):
+    '''
+    Simulate M neurons of the given model using BindsNET. They receive
+    balanced Poisson inputs with connection strength q and rate R.
+    '''
+    torch.random.manual_seed(seed)
+    R = torch.atleast_1d(torch.as_tensor(R/2, device=device))
+    if M is None:
+        M = len(R)
+
+    # Build the base network and its layers.
+    steps = int(T/dt)
+    net = bn.Network(dt=dt)
+    net.to(device)
+    source = bn.nodes.Input(n=M, traces=True)
+    source.to(device)
+    neurons = model(n=M, traces=True, **model_params)
+    neurons.to(device)
+    net.add_layer(source, name='source')
+    net.add_layer(neurons, name='neurons')
+
+    # Connect the input to the neurons one-to-one with weight q.
+    net.add_connection(
+        source='source',
+        target='neurons',
+        connection=bn.topology.Connection(
+            source=source,
+            target=neurons,
+            w=q*torch.eye(M, device=device)))
+
+    # Record the spiking activity for later.
+    monitor = bn.monitors.Monitor(obj=neurons, state_vars=['s'], time=steps)
+    net.add_monitor(monitor=monitor, name='neurons')
+
+    # Generate random balanced input.
+    rates = torch.vstack([R]*steps)
+    input_data = torch.poisson(rates).char() - torch.poisson(rates).char()
+
+    # Actually run the simulation...
+    net.run(inputs={'source': input_data}, time=T)
+
+    # Grab the spike matrix from the monitor and turn it into SpikeData.
+    times, _, idces = torch.nonzero(monitor.get('s'), as_tuple=True)
+    return ba.SpikeData(idces, times*dt, length=float(T))
 
 
 @memory.cache(ignore=['progress_interval'])
