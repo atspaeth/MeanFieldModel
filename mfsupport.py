@@ -201,7 +201,8 @@ def firing_rates(*, q, M=500, sigma_max=None, R_max=None, cache=True,
 @memory.cache(ignore=['progress_interval'])
 def sim_neurons(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
                 warmup_time=0.0, warmup_rate=None, warmup_steps=10,
-                connectivity=None, progress_interval=1e3, seed=42):
+                connectivity=None, seed=42, recordables=None,
+                progress_interval=1e3):
     '''
     Simulate M Izhikevich neurons using NEST. They are receiving Poisson
     inputs with connection strength q and rate R, and optionally connected
@@ -242,6 +243,11 @@ def sim_neurons(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
     if progress_interval is not None:
         pbar = tqdm(total=T + warmup_time, unit='sim sec', unit_scale=1e-3)
 
+    if recordables:
+        rec = nest.Create('multimeter',
+                          params=dict(record_from=recordables, interval=dt))
+        nest.Connect(rec, neurons)
+
     if warmup_time > 0:
         base_rate = noise.rate
         if warmup_rate is None:
@@ -266,7 +272,8 @@ def sim_neurons(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
         pbar.close()
 
     # Create SpikeData and trim off the warmup time.
-    return ba.SpikeData(rec, neurons, length=T+warmup_time
+    return ba.SpikeData(rec, neurons, length=T+warmup_time,
+                        metadata=rec.events if recordables else {}
                         ).subtime(warmup_time, ...)
 
 
