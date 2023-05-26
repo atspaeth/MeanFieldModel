@@ -12,30 +12,31 @@ from joblib import Memory
 
 memory = Memory(location='.cache', verbose=0)
 
+def lazy_package(full_name):
+    if callable(full_name):
+        return lazy_package(full_name.__name__)(full_name)
+    class stub:
+        def __init__(self, func):
+            self.func = func
+        def __getattr__(self, attr):
+            from importlib import import_module
+            globals()[self.func.__name__] = import_module(full_name)
+            self.func()
+            return getattr(globals()[self.func.__name__], attr)
+    return stub
 
-class StubPackage:
-    def __init__(self, name, *onloads, full_pkg=None):
-        self.name = name
-        self.onloads = onloads
-        self.full_pkg = full_pkg or name
-        globals()[self.name] = self
-    def __getattr__(self, name):
-        import importlib
-        globals()[self.name] = importlib.import_module(self.full_pkg)
-        for onload in self.onloads:
-            onload()
-        return getattr(globals()[self.name], name)
-
-def install_mfmodule():
+@lazy_package
+def nest():
     from pynestml.frontend.pynestml_frontend import generate_nest_target
     generate_nest_target('models/', '/tmp/nestml-mfsupport/',
                          module_name='mfmodule')
     nest.Install('mfmodule')
 
-StubPackage('nest', install_mfmodule)
-StubPackage('torch')
-StubPackage('bn', full_pkg='bindsnet.network')
+@lazy_package('bindsnet.network')
+def bn(): pass
 
+@lazy_package
+def torch(): pass
 
 def _softplus(arg):
     '''
@@ -265,7 +266,7 @@ def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
 
     # Grab the spike matrix from the monitor and turn it into SpikeData.
     times, _, idces = torch.nonzero(monitor.get('s'), as_tuple=True)
-    return ba.SpikeData(idces, times*dt, length=float(T))
+    return ba.SpikeData(idces, times*dt, length=float(T), N=M)
 
 
 @memory.cache(ignore=['progress_interval'])
