@@ -272,7 +272,7 @@ def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
         # because it's split into the two balanced parts, but also change
         # units from Hz to spikes per time step.
         rates = torch.vstack([R/2 * dt/1e3]*steps)
-        input_data = torch.poisson(rates).char() - torch.poisson(rates).char()
+        input_data = (torch.poisson(rates) - torch.poisson(rates)).char()
 
         # Actually run the simulation...
         net.run(inputs={'source': input_data}, time=T)
@@ -399,20 +399,41 @@ def psp_corrected_weight(neuron, q):
     raise NotImplementedError(f'Model {neuron[0].model} not supported.')
 
 
-class RandomConnectivity:
+class Connectivity:
+    def connect(self, neurons):
+        if hasattr(neurons, 'cuda'):
+            self.connect_bindsnet(neurons)
+        else:
+            self.connect_nest(neurons)
+
+
+class RandomConnectivity(Connectivity):
     def __init__(self, N, q, synapse_params={}):
         self.N = N
         self.q = q
         self._sp = synapse_params
 
-    def connect(self, neurons):
+    def connect_bindsnet(self, net):
+        M = net.layers['layer'].n
+        topology = torch.zeros(M, M)
+        for i in range(M):
+            idces = torch.randperm(M)[:self.N]
+            topology[i, idces[:self.N//2]] = self.q
+            topology[i, idces[self.N//2:]] = -self.q
+        conn = bn.topology.Connection(
+            net.layers['layer'], net.layers['layer'],
+            w=topology, **self._sp)
+        net.add_connection(conn, 'layer', 'layer')
+
+    def connect_nest(self, neurons):
         M = len(neurons)
         for q in (self.q, -self.q):
+            weight = psp_corrected_weight(neurons[0], q)
             nest.Connect(neurons, neurons,
-                         dict(rule='fixed_indegree', indegree=self.N//2),
-                         dict(**self._sp,
-                              synapse_model='static_synapse',
-                              weight=psp_corrected_weight(neurons[0], q)))
+                         dict(rule='fixed_indegree',
+                              indegree=self.N//2),
+                         dict(synapse_model='static_synapse',
+                              weight=weight, **self._sp))
 
 
 class BernoulliAllToAllConnectivity:
