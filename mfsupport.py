@@ -1,25 +1,40 @@
+import os
 import itertools
 import pickle
-import torch
 import numpy as np
-from scipy import stats, signal, optimize, special, sparse
-import bindsnet.network as bn
+import matplotlib.pyplot as plt
 import braingeneers.analysis as ba
+from scipy import optimize, special
 from tqdm import tqdm
-import nest
-import os
 from contextlib import contextmanager
 from joblib import Memory
-import matplotlib.pyplot as plt
-
-
-from pynestml.frontend.pynestml_frontend import generate_nest_target
-generate_nest_target('models/', '/tmp/nestml-mfsupport/',
-                     module_name='mfmodule')
-nest.Install('mfmodule')
 
 
 memory = Memory(location='.cache', verbose=0)
+
+
+class StubPackage:
+    def __init__(self, name, *onloads, full_pkg=None):
+        self.name = name
+        self.onloads = onloads
+        self.full_pkg = full_pkg or name
+        globals()[self.name] = self
+    def __getattr__(self, name):
+        import importlib
+        globals()[self.name] = importlib.import_module(self.full_pkg)
+        for onload in self.onloads:
+            onload()
+        return getattr(globals()[self.name], name)
+
+def install_mfmodule():
+    from pynestml.frontend.pynestml_frontend import generate_nest_target
+    generate_nest_target('models/', '/tmp/nestml-mfsupport/',
+                         module_name='mfmodule')
+    nest.Install('mfmodule')
+
+StubPackage('nest', install_mfmodule)
+StubPackage('torch')
+StubPackage('bn', full_pkg='bindsnet.network')
 
 
 def _softplus(arg):
