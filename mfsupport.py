@@ -221,52 +221,65 @@ def firing_rates(model, q, M=500, sigma_max=None, R_max=None, cache=True,
 
 @memory.cache(ignore=['device'])
 def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
+                         warmup_time=0.0, connectivity=None,
                          model_params={}, device='cuda'):
     '''
     Simulate M neurons of the given model using BindsNET. They receive
     balanced Poisson inputs with connection strength q and rate R.
     '''
-    torch.random.manual_seed(seed)
-    R = torch.atleast_1d(torch.as_tensor(R, device=device))
-    if M is None:
-        M = len(R)
+    with torch.device(device):
+        torch.random.manual_seed(seed)
+        R = torch.atleast_1d(torch.as_tensor(R))
+        if M is None:
+            M = len(R)
 
-    # Build the base network and its layers.
-    steps = int(T/dt)
-    net = bn.Network(dt=dt)
-    net.to(device)
-    source = bn.nodes.Input(n=M, traces=True)
-    source.to(device)
-    neurons = model(n=M, traces=True, **model_params)
-    neurons.to(device)
-    net.add_layer(source, name='source')
-    net.add_layer(neurons, name='neurons')
+        # Build the base network and its layers.
+        steps = int(T/dt)
+        net = bn.Network(dt=dt)
+        net.to(device)
+        source = bn.nodes.Input(n=M, traces=True)
+        source.to(device)
+        neurons = model(n=M, traces=True, **model_params)
+        neurons.to(device)
+        net.add_layer(source, name='source')
+        net.add_layer(neurons, name='neurons')
+        if connectivity is not None:
+            connectivity.connect(net)
 
-    # Connect the input to the neurons one-to-one with weight q.
-    net.add_connection(
-        source='source',
-        target='neurons',
-        connection=bn.topology.Connection(
-            source=source,
-            target=neurons,
-            w=q*torch.eye(M, device=device)))
+        # Connect the input to the neurons one-to-one with weight q.
+        net.add_connection(
+            source='source',
+            target='neurons',
+            connection=bn.topology.Connection(
+                source=source,
+                target=neurons,
+                w=q*torch.eye(M)))
 
-    # Record the spiking activity for later.
-    monitor = bn.monitors.Monitor(obj=neurons, state_vars=['s'], time=steps)
-    net.add_monitor(monitor=monitor, name='neurons')
+        # Do the warmup simulation without recording.
+        if warmup_time > 0:
+            warmup_steps = int(warmup_time/dt)
+            warmup_ramp = torch.linspace(10,1, warmup_steps)
+            rates = 10 * R/2*dt/1e3 * warmup_ramp[:,None]
+            input_data = (torch.poisson(rates)
+                          - torch.poisson(rates)).char()
+            net.run(inputs={'source': input_data}, time=warmup_time)
 
-    # Generate random balanced input. We have to divide R by two because
-    # it's split into the two balanced parts, but also change units from Hz
-    # to spikes per time step.
-    rates = torch.vstack([R/2 * dt/1e3]*steps)
-    input_data = torch.poisson(rates).char() - torch.poisson(rates).char()
+        # Add recording before finishing the simulation.
+        monitor = bn.monitors.Monitor(obj=neurons, state_vars=['s'], time=steps)
+        net.add_monitor(monitor=monitor, name='neurons')
 
-    # Actually run the simulation...
-    net.run(inputs={'source': input_data}, time=T)
+        # Generate random balanced input. We have to divide R by two
+        # because it's split into the two balanced parts, but also change
+        # units from Hz to spikes per time step.
+        rates = torch.vstack([R/2 * dt/1e3]*steps)
+        input_data = torch.poisson(rates).char() - torch.poisson(rates).char()
 
-    # Grab the spike matrix from the monitor and turn it into SpikeData.
-    times, _, idces = torch.nonzero(monitor.get('s'), as_tuple=True)
-    return ba.SpikeData(idces, times*dt, length=float(T), N=M)
+        # Actually run the simulation...
+        net.run(inputs={'source': input_data}, time=T)
+
+        # Grab the monitor's spike matrix and turn it into SpikeData.
+        times, _, idces = torch.nonzero(monitor.get('s'), as_tuple=True)
+        return ba.SpikeData(idces, times*dt, length=float(T), N=M)
 
 
 @memory.cache(ignore=['progress_interval'])
