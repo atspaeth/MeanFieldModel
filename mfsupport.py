@@ -414,16 +414,16 @@ class RandomConnectivity(Connectivity):
         self._sp = synapse_params
 
     def connect_bindsnet(self, net):
-        M = net.layers['layer'].n
+        M = net.layers['neurons'].n
         topology = torch.zeros(M, M)
         for i in range(M):
             idces = torch.randperm(M)[:self.N]
             topology[i, idces[:self.N//2]] = self.q
             topology[i, idces[self.N//2:]] = -self.q
         conn = bn.topology.Connection(
-            net.layers['layer'], net.layers['layer'],
+            net.layers['neurons'], net.layers['neurons'],
             w=topology, **self._sp)
-        net.add_connection(conn, 'layer', 'layer')
+        net.add_connection(conn, 'neurons', 'neurons')
 
     def connect_nest(self, neurons):
         M = len(neurons)
