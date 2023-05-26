@@ -209,9 +209,9 @@ def firing_rates(model, q, M=500, sigma_max=None, R_max=None, cache=True,
 
     R = R_max if uniform_input else np.linspace(0, R_max, num=M)
 
-    sim = (sim_neurons_bindsnet
-           if isinstance(model, bn.nodes.Nodes)
-           else sim_neurons)
+    sim = (sim_neurons
+           if isinstance(model, str)
+           else sim_neurons_bindsnet)
     sim = sim if cache else sim.func
     sd = sim(model=model, q=q, R=R, M=M, seed=seed, **kwargs)
 
@@ -226,7 +226,7 @@ def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
     balanced Poisson inputs with connection strength q and rate R.
     '''
     torch.random.manual_seed(seed)
-    R = torch.atleast_1d(torch.as_tensor(R/2, device=device))
+    R = torch.atleast_1d(torch.as_tensor(R, device=device))
     if M is None:
         M = len(R)
 
@@ -254,8 +254,10 @@ def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
     monitor = bn.monitors.Monitor(obj=neurons, state_vars=['s'], time=steps)
     net.add_monitor(monitor=monitor, name='neurons')
 
-    # Generate random balanced input.
-    rates = torch.vstack([R]*steps)
+    # Generate random balanced input. We have to divide R by two because
+    # it's split into the two balanced parts, but also change units from Hz
+    # to spikes per time step.
+    rates = torch.vstack([R/2 * dt/1e3]*steps)
     input_data = torch.poisson(rates).char() - torch.poisson(rates).char()
 
     # Actually run the simulation...
