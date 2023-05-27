@@ -233,6 +233,10 @@ def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
         R = torch.atleast_1d(torch.as_tensor(R))
         if M is None:
             M = len(R)
+        elif len(R) == 1:
+            R = R.repeat(M)
+        elif len(R) != M:
+            raise ValueError('R must be scalar or length M.')
 
         # Build the base network and its layers.
         steps = int(T/dt)
