@@ -9,7 +9,7 @@ from tqdm import tqdm
 from contextlib import contextmanager
 from joblib import Memory
 
-
+os.environ['PYNEST_QUIET'] = '1'
 memory = Memory(location='.cache', verbose=0)
 
 def lazy_package(full_name):
@@ -27,6 +27,7 @@ def lazy_package(full_name):
 
 @lazy_package
 def nest():
+    nest.set_verbosity('M_WARNING')
     from pynestml.frontend.pynestml_frontend import generate_nest_target
     generate_nest_target('models/', '/tmp/nestml-mfsupport/',
                          module_name='mfmodule')
