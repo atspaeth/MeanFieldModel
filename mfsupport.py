@@ -211,24 +211,48 @@ def firing_rates(model, q, M=500, sigma_max=None, R_max=None, cache=True,
 
     R = R_max if uniform_input else np.linspace(0, R_max, num=M)
 
-    sim = (sim_neurons
-           if isinstance(model, str)
-           else sim_neurons_bindsnet)
+    # Select from the four possible simulation functions: whether to use
+    # BindsNET or NEST, and whether to bypass the cache.
+    use_bindsnet = not isinstance(model, str)
+    sim = sim_neurons_bindsnet if use_bindsnet else sim_neurons
     sim = sim if cache else sim.func
     sd = sim(model=model, q=q, R=R, M=M, seed=seed, **kwargs)
+
+    # BindsNET simulations need to be cleared from GPU memory to allow other
+    # simulations to follow them. This is weird because references to the
+    # tensors on GPU are still in Python memory, so GC them first.
+    if use_bindsnet:
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
 
     return R, (sd if return_times else sd.rates('Hz'))
 
 
-@memory.cache(ignore=['device'])
+def run_net_with_rates(net, R, T):
+    '''
+    Given a BindsNET network whose input layer is called 'source' and a set
+    of input rates R, generate balanced Poisson inputs and run the network.
+    '''
+    # We have to divide R by two because it's split into the two balanced
+    # parts, but also change units from Hz to spikes per time step.
+    steps = int(T / net.dt)
+    rates = torch.vstack([R/2 * net.dt/1e3]*steps)
+    input_data = (torch.poisson(rates)
+                  - torch.poisson(rates)).char()
+    net.run(inputs={'source': input_data}, time=T)
+
+
+@memory.cache(ignore=['device', 'progress_interval'])
 def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
-                         warmup_time=0.0, connectivity=None,
-                         model_params={}, device='cuda'):
+                         model_params={}, connectivity=None,
+                         warmup_time=0.0, warmup_steps=10,
+                         progress_interval=None, device='cuda'):
     '''
     Simulate M neurons of the given model using BindsNET. They receive
     balanced Poisson inputs with connection strength q and rate R.
     '''
-    with torch.device(device):
+    with torch.device(device), torch.no_grad():
         torch.random.manual_seed(seed)
         R = torch.atleast_1d(torch.as_tensor(R))
         if M is None:
@@ -239,7 +263,6 @@ def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
             raise ValueError('R must be scalar or length M.')
 
         # Build the base network and its layers.
-        steps = int(T/dt)
         net = bn.Network(dt=dt)
         net.to(device)
         source = bn.nodes.Input(n=M, traces=True)
@@ -260,27 +283,39 @@ def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
                 target=neurons,
                 w=q*torch.eye(M)))
 
+        # If there is a progress interval, use a progress bar. If it is
+        # zero, the chunk size for simulations should be 100ms.
+        if progress_interval is None:
+            progress_interval = 0.0
+            pbar = None
+        else:
+            pbar = tqdm(total=T + warmup_time, unit='sim sec',
+                        unit_scale=1e-3)
+        if progress_interval <= 0:
+            progress_interval = 1e2
+
         # Do the warmup simulation without recording.
         if warmup_time > 0:
-            warmup_steps = int(warmup_time/dt)
-            warmup_ramp = torch.linspace(10,1, warmup_steps)
-            rates = 10 * R/2*dt/1e3 * warmup_ramp[:,None]
-            input_data = (torch.poisson(rates)
-                          - torch.poisson(rates)).char()
-            net.run(inputs={'source': input_data}, time=warmup_time)
+            warmup_T = warmup_time / warmup_steps
+            for i in range(warmup_steps):
+                warmup_ramp = np.interp(i, [0,warmup_steps], [10,1])
+                run_net_with_rates(net, warmup_ramp*R, warmup_T)
+                if pbar: pbar.update(warmup_T)
 
         # Add recording before finishing the simulation.
-        monitor = bn.monitors.Monitor(obj=neurons, state_vars=['s'], time=steps)
+        monitor = bn.monitors.Monitor(obj=neurons, state_vars=['s'],
+                                      time=int(T/net.dt))
         net.add_monitor(monitor=monitor, name='neurons')
 
-        # Generate random balanced input. We have to divide R by two
-        # because it's split into the two balanced parts, but also change
-        # units from Hz to spikes per time step.
-        rates = torch.vstack([R/2 * dt/1e3]*steps)
-        input_data = (torch.poisson(rates) - torch.poisson(rates)).char()
+        # Run the simulation broken up into chunks.
+        residue = T % progress_interval
+        if residue > net.dt:
+            run_net_with_rates(net, R, residue)
+        for i in range(int(T/progress_interval)):
+            run_net_with_rates(net, R, progress_interval)
+            if pbar: pbar.update(progress_interval)
 
-        # Actually run the simulation...
-        net.run(inputs={'source': input_data}, time=T)
+        if pbar: pbar.close()
 
         # Grab the monitor's spike matrix and turn it into SpikeData.
         times, _, idces = torch.nonzero(monitor.get('s'), as_tuple=True)
