@@ -203,19 +203,15 @@ def reset_nest(dt, seed):
 
 
 def firing_rates(model, q, M=500, sigma_max=None, R_max=None, cache=True,
-                 return_times=False, uniform_input=False, seed=42, **kwargs):
+                 return_times=False, uniform_input=False, seed=42,
+                 backend='default', **kwargs):
     if R_max is None and sigma_max is not None:
         R_max = 1e3 * (sigma_max / q)**2
     elif (R_max is None) == (sigma_max is None):
         raise ValueError('Either R_max or sigma_max must be given!')
 
     R = R_max if uniform_input else np.linspace(0, R_max, num=M)
-
-    # Select from the four possible simulation functions: whether to use
-    # BindsNET or NEST, and whether to bypass the cache.
-    use_bindsnet = not isinstance(model, str)
-    sim = sim_neurons_bindsnet if use_bindsnet else sim_neurons
-    sim = sim if cache else sim.func
+    sim = SIM_BACKENDS[backend] if cache else SIM_BACKENDS[backend].func
     sd = sim(model=model, q=q, R=R, M=M, seed=seed, **kwargs)
 
     # BindsNET simulations need to be cleared from GPU memory to allow other
@@ -229,6 +225,85 @@ def firing_rates(model, q, M=500, sigma_max=None, R_max=None, cache=True,
     return R, (sd if return_times else sd.rates('Hz'))
 
 
+@memory.cache(ignore=['progress_interval'])
+def sim_neurons_nest(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
+                warmup_time=0.0, warmup_rate=None, warmup_steps=10,
+                connectivity=None, seed=42, recordables=None,
+                progress_interval=1e3):
+    '''
+    Simulate M Izhikevich neurons using NEST. They are receiving Poisson
+    inputs with connection strength q and rate R, and optionally connected
+    to each other by calling the given connectivity object's connect()
+    method on the neurons after initialization.
+    '''
+    R = np.atleast_1d(R)
+    if M is None:
+        M = len(R)
+
+    reset_nest(dt=dt, seed=seed)
+
+    neurons = nest.Create(model, n=M, params=model_params)
+    if I_ext is not None:
+        neurons.I_e = voltage_slew_to_current(neurons, I_ext)
+
+    noise = nest.Create('poisson_generator', n=len(R),
+                        params=dict(rate=R/2))
+
+    if len(R) == 1:
+        conn = 'all_to_all'
+    elif len(R) == M:
+        conn = 'one_to_one'
+    else:
+        raise ValueError('R must be a scalar or a vector of length M.')
+
+    nest.Connect(noise, neurons, conn,
+                 dict(weight=psp_corrected_weight(neurons[0], q)))
+    nest.Connect(noise, neurons, conn,
+                 dict(weight=psp_corrected_weight(neurons[0], -q)))
+
+    if connectivity is not None:
+        connectivity.connect(neurons)
+
+    rec = nest.Create('spike_recorder')
+    nest.Connect(neurons, rec)
+
+    if progress_interval is not None:
+        pbar = tqdm(total=T + warmup_time, unit='sim sec', unit_scale=1e-3)
+
+    if recordables:
+        rec = nest.Create('multimeter',
+                          params=dict(record_from=recordables, interval=dt))
+        nest.Connect(rec, neurons)
+
+    if warmup_time > 0:
+        base_rate = noise.rate
+        if warmup_rate is None:
+            warmup_rate = 10*base_rate
+        for i in range(warmup_steps):
+            noise.rate = np.interp(i, [0,warmup_steps],
+                                   [warmup_rate, base_rate])
+            nest.Simulate(warmup_time / warmup_steps)
+            if progress_interval is not None:
+                pbar.update(warmup_time / warmup_steps)
+        noise.rate = base_rate
+
+    if progress_interval is None:
+        nest.Simulate(T)
+    else:
+        with nest.RunManager():
+            nest.Run(T % progress_interval)
+            pbar.update(T % progress_interval)
+            for _ in range(int(T//progress_interval)):
+                nest.Run(progress_interval)
+                pbar.update(progress_interval)
+        pbar.close()
+
+    # Create SpikeData and trim off the warmup time.
+    return ba.SpikeData(rec, neurons, length=T+warmup_time,
+                        metadata=rec.events if recordables else {}
+                        ).subtime(warmup_time, ...)
+
+
 def run_net_with_rates(net, R, T):
     '''
     Given a BindsNET network whose input layer is called 'source' and a set
@@ -236,6 +311,7 @@ def run_net_with_rates(net, R, T):
     '''
     # We have to divide R by two because it's split into the two balanced
     # parts, but also change units from Hz to spikes per time step.
+    # TODO this should use their builtin Poisson encoder instead.
     steps = int(T / net.dt)
     rates = torch.vstack([R/2 * net.dt/1e3]*steps)
     input_data = (torch.poisson(rates)
@@ -322,83 +398,16 @@ def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
         return ba.SpikeData(idces, times*dt, length=float(T), N=M)
 
 
-@memory.cache(ignore=['progress_interval'])
-def sim_neurons(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
-                warmup_time=0.0, warmup_rate=None, warmup_steps=10,
-                connectivity=None, seed=42, recordables=None,
-                progress_interval=1e3):
-    '''
-    Simulate M Izhikevich neurons using NEST. They are receiving Poisson
-    inputs with connection strength q and rate R, and optionally connected
-    to each other by calling the given connectivity object's connect()
-    method on the neurons after initialization.
-    '''
-    R = np.atleast_1d(R)
-    if M is None:
-        M = len(R)
+def sim_neurons_unimplemented(*args, **kwargs):
+    raise NotImplementedError('Brian2 is not yet supported.')
 
-    reset_nest(dt=dt, seed=seed)
 
-    neurons = nest.Create(model, n=M, params=model_params)
-    if I_ext is not None:
-        neurons.I_e = voltage_slew_to_current(neurons, I_ext)
-
-    noise = nest.Create('poisson_generator', n=len(R),
-                        params=dict(rate=R/2))
-
-    if len(R) == 1:
-        conn = 'all_to_all'
-    elif len(R) == M:
-        conn = 'one_to_one'
-    else:
-        raise ValueError('R must be a scalar or a vector of length M.')
-
-    nest.Connect(noise, neurons, conn,
-                 dict(weight=psp_corrected_weight(neurons[0], q)))
-    nest.Connect(noise, neurons, conn,
-                 dict(weight=psp_corrected_weight(neurons[0], -q)))
-
-    if connectivity is not None:
-        connectivity.connect(neurons)
-
-    rec = nest.Create('spike_recorder')
-    nest.Connect(neurons, rec)
-
-    if progress_interval is not None:
-        pbar = tqdm(total=T + warmup_time, unit='sim sec', unit_scale=1e-3)
-
-    if recordables:
-        rec = nest.Create('multimeter',
-                          params=dict(record_from=recordables, interval=dt))
-        nest.Connect(rec, neurons)
-
-    if warmup_time > 0:
-        base_rate = noise.rate
-        if warmup_rate is None:
-            warmup_rate = 10*base_rate
-        for i in range(warmup_steps):
-            noise.rate = np.interp(i, [0,warmup_steps],
-                                   [warmup_rate, base_rate])
-            nest.Simulate(warmup_time / warmup_steps)
-            if progress_interval is not None:
-                pbar.update(warmup_time / warmup_steps)
-        noise.rate = base_rate
-
-    if progress_interval is None:
-        nest.Simulate(T)
-    else:
-        with nest.RunManager():
-            nest.Run(T % progress_interval)
-            pbar.update(T % progress_interval)
-            for _ in range(int(T//progress_interval)):
-                nest.Run(progress_interval)
-                pbar.update(progress_interval)
-        pbar.close()
-
-    # Create SpikeData and trim off the warmup time.
-    return ba.SpikeData(rec, neurons, length=T+warmup_time,
-                        metadata=rec.events if recordables else {}
-                        ).subtime(warmup_time, ...)
+SIM_BACKENDS = dict(
+    default=sim_neurons_nest,
+    nest=sim_neurons_nest,
+    bindsnet=sim_neurons_bindsnet,
+    norse=sim_neurons_unimplemented,
+    brian2=sim_neurons_unimplemented)
 
 
 def voltage_slew_to_current(neuron, slew):
