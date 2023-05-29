@@ -39,6 +39,10 @@ def bn(): pass
 @lazy_package
 def torch(): pass
 
+@lazy_package('brian2')
+def br(): pass
+
+
 def _softplus(arg):
     '''
     Just the freaky nonlinear part of softplus, implementing
@@ -213,15 +217,6 @@ def firing_rates(model, q, M=500, sigma_max=None, R_max=None, cache=True,
     R = R_max if uniform_input else np.linspace(0, R_max, num=M)
     sim = SIM_BACKENDS[backend] if cache else SIM_BACKENDS[backend].func
     sd = sim(model=model, q=q, R=R, M=M, seed=seed, **kwargs)
-
-    # BindsNET simulations need to be cleared from GPU memory to allow other
-    # simulations to follow them. This is weird because references to the
-    # tensors on GPU are still in Python memory, so GC them first.
-    if use_bindsnet:
-        import gc
-        gc.collect()
-        torch.cuda.empty_cache()
-
     return R, (sd if return_times else sd.rates('Hz'))
 
 
@@ -395,7 +390,53 @@ def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
 
         # Grab the monitor's spike matrix and turn it into SpikeData.
         times, _, idces = torch.nonzero(monitor.get('s'), as_tuple=True)
-        return ba.SpikeData(idces, times*dt, length=float(T), N=M)
+        sd = ba.SpikeData(idces, times*dt, length=float(T), N=M)
+
+    # BindsNET simulations need to be cleared from GPU memory to allow other
+    # simulations to follow them. This is weird because references to the
+    # tensors on GPU are still in Python memory, so GC them first.
+    import gc
+    gc.collect()
+    torch.cuda.empty_cache()
+    return sd
+
+
+@memory.cache()
+def sim_neurons_brian2(model, q, R, dt, T, M=None, seed=42):
+    '''
+    Simulate M neurons using Brian2. They receive balanced Poisson inputs
+    with connection strength q and rate R.
+
+    Since Brian2 has no built-in models, a model must be specified as an
+    entire dictionary where 'model' contains a multi-line string with its
+    dynamic equations, 'threshold' contains the spike threshold condition as
+    a boolean expression, etc.
+    '''
+    R = np.atleast_1d(R)
+    if M is None:
+        M = len(R)
+    elif  len(R) != M:
+        raise ValueError('R must be scalar or length M.')
+
+    br.defaultclock.dt = dt*br.ms
+    neurons = br.NeuronGroup(M, **model)
+    monitor = br.SpikeMonitor(neurons)
+    # All constructed objects must be explicitly named and in scope so Brian
+    # can extract them for the run() call.
+    if len(R) == 1:
+        input_pos = br.PoissonInput(neurons, 'v', 1, R[0]/2*br.Hz, q)
+        input_neg = br.PoissonInput(neurons, 'v', 1, R[0]/2*br.Hz, -q)
+    else:
+        # For each postsynaptic neuron, create Npre separate presynaptic
+        # Poisson inputs. The odd ones have negative weights, and the split
+        # must be significantly greater than 2 because it's impossible for
+        # a single neuron to spike multiple times per step.
+        Npre = 42
+        source = br.PoissonGroup(Npre*M, R.repeat(Npre)/Npre*br.Hz)
+        syn = br.Synapses(source, neurons, on_pre='v_post += (-1)**i * q')
+        syn.connect(j=f'int(i/{Npre})')
+    br.run(T*br.ms, namespace=dict(q=q*br.mV))
+    return ba.SpikeData(monitor.i, monitor.t, length=T, N=M)
 
 
 def sim_neurons_unimplemented(*args, **kwargs):
@@ -407,7 +448,7 @@ SIM_BACKENDS = dict(
     nest=sim_neurons_nest,
     bindsnet=sim_neurons_bindsnet,
     norse=sim_neurons_unimplemented,
-    brian2=sim_neurons_unimplemented)
+    brian2=sim_neurons_brian2)
 
 
 def voltage_slew_to_current(neuron, slew):
