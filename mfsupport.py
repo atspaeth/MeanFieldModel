@@ -229,6 +229,31 @@ def firing_rates(model, q, M=500, sigma_max=None, R_max=None, cache=True,
     return R, (sd if return_times else sd.rates('Hz'))
 
 
+def sim_progress(total_time, interval):
+    '''
+    If there is a progress interval, use a progress bar. If it is zero, the
+    chunk size for simulations should be 100ms.
+    '''
+    pbar = tqdm(total=total_time, unit='sim sec', unit_scale=1e-3,
+                disable=interval is not None)
+    pbar.interval = 1e2 if interval is None or interval <= 0 else interval
+    return pbar
+
+
+def sim_step_lengths(pbar, total_time, dt):
+    '''
+    Generate step lengths and update a progress bar for a simulation of
+    given total length and dt.
+    '''
+    for _ in range(int(total_time/pbar.interval)):
+        yield pbar.interval
+        pbar.update(pbar.interval)
+    residue = total_time % pbar.interval
+    if residue > dt:
+        yield residue
+        pbar.update(residue)
+
+
 @memory.cache(ignore=['progress_interval'])
 def sim_neurons_nest(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
                 warmup_time=0.0, warmup_rate=None, warmup_steps=10,
@@ -276,8 +301,7 @@ def sim_neurons_nest(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
                           params=dict(record_from=recordables, interval=dt))
         nest.Connect(rec, neurons)
 
-    with tqdm(total=T + warmup_time, unit='sim sec', unit_scale=1e-3,
-              disable=progress_interval is not None) as pbar:
+    with sim_progress(T+warmup_time, progress_interval) as pbar:
 
         if warmup_time > 0:
             base_rate = noise.rate
@@ -291,11 +315,8 @@ def sim_neurons_nest(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
             noise.rate = base_rate
 
         with nest.RunManager():
-            nest.Run(T % progress_interval)
-            pbar.update(T % progress_interval)
-            for _ in range(int(T//progress_interval)):
-                nest.Run(progress_interval)
-                pbar.update(progress_interval)
+            for step in sim_step_lengths(pbar, T, dt):
+                nest.Run(step)
 
     # Create SpikeData and trim off the warmup time.
     return ba.SpikeData(rec, neurons, length=T+warmup_time,
@@ -364,14 +385,7 @@ def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
             connection=bn.topology.Connection(
                 source=source, target=neurons, w=w))
 
-        # If there is a progress interval, use a progress bar. If it is
-        # zero, the chunk size for simulations should be 100ms.
-        with tqdm(total=T+warmup_time, unit='sim sec', unit_scale=1e-3,
-                  disable=progress_interval is None) as pbar:
-            # Break the simulation up into steps for memory reasons even if
-            # there is no progress bar.
-            if progress_interval is None or progress_interval <= 0:
-                progress_interval = 1e2
+        with sim_progress(T+warmup_time, progress_interval) as pbar:
 
             # Do the warmup simulation without recording.
             if warmup_time > 0:
@@ -387,12 +401,8 @@ def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
             net.add_monitor(monitor=monitor, name='neurons')
 
             # Run the simulation broken up into chunks.
-            residue = T % progress_interval
-            if residue > net.dt:
-                run_net_with_rates(net, R, residue, Npre)
-            for i in range(int(T/progress_interval)):
-                run_net_with_rates(net, R, progress_interval, Npre)
-                pbar.update(progress_interval)
+            for step in sim_step_lengths(pbar, T, dt):
+                run_net_with_rates(net, R, step, Npre)
 
         # Grab the monitor's spike matrix and turn it into SpikeData.
         times, _, idces = torch.nonzero(monitor.get('s'), as_tuple=True)
@@ -447,11 +457,7 @@ def sim_neurons_brian2(model, q, R, dt, T, M=None, connectivity=None,
         syn = br.Synapses(source, neurons, on_pre='v_post += (-1)**i * q')
         syn.connect(j=f'int(i/{Npre})')
 
-    with tqdm(total=T+warmup_time, unit='sim sec', unit_scale=1e-3,
-              disable=progress_interval is None) as pbar:
-        if progress_interval is None or progress_interval <= 0:
-            progress_interval = 1e2
-
+    with sim_progress(T+warmup_time, progress_interval) as pbar:
         # Create the namespace for all simulations. Note that this R is only
         # relevant for the case where there is only one rate, and is ignored
         # in the case of a range of values.
@@ -467,14 +473,9 @@ def sim_neurons_brian2(model, q, R, dt, T, M=None, connectivity=None,
                 br.run(step_length*br.ms, namespace=namespace)
 
         # Add a spike monitor and run the proper simulation.
-        residue = T % progress_interval
         monitor = br.SpikeMonitor(neurons)
-        if residue > net.dt:
-            br.run(residue*br.ms, namespace=namespace)
-            pbar.update(residue)
-        for i in range(int(T/progress_interval)):
-            br.run(progress_interval*br.ms, namespace=namespace)
-            pbar.update(progress_interval)
+        for step in sim_step_lengths(pbar, T, dt):
+            br.run(step*br.ms, namespace=namespace)
 
     # Translate the spike monitor into a SpikeData object.
     return ba.SpikeData(monitor.i, monitor.t, length=T, N=M)
