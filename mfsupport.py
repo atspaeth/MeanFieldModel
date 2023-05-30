@@ -353,15 +353,16 @@ def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
 
         # Connect the input to the neurons Npre-to-one with weight ±q,
         # alternating so the odd indices are negative.
-        w = torch.eye(M).repeat_interleave(Npre, dim=1)
-        w *= (-1)**torch.arange(w.shape[1]) * q
+        w = torch.sparse_csc_tensor(
+            ccol_indices=Npre*torch.arange(M+1),
+            row_indices=torch.arange(M*Npre),
+            values=q * (-1)**torch.arange(M*Npre),
+            size=(M*Npre, M))
         net.add_connection(
             source='source',
             target='neurons',
             connection=bn.topology.Connection(
-                source=source,
-                target=neurons,
-                w=w.T))
+                source=source, target=neurons, w=w))
 
         # If there is a progress interval, use a progress bar. If it is
         # zero, the chunk size for simulations should be 100ms.
