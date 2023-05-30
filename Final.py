@@ -343,7 +343,7 @@ print('Upper bifurcation has stable FR =',
 M = 10000
 dt = 0.1
 T = 3e3
-model = 'iaf_psc_delta'
+model = 'LIF'
 
 def mean_field_fixed_points(N, R_background, q):
     R, rates = firing_rates(model=model, q=q, dt=dt, T=1e5, M=100,
@@ -373,11 +373,11 @@ def sim_fixed_points(N, R_background, q, annealed_average=False):
                      sd_top.subtime(1e3, ...).rates('Hz').mean()])
 
 N_theo = np.arange(30, 91)
-N_sim = np.linspace(30, 90, 8).astype(int)
-R_backgrounds = [10e3, 0.1e3, 0.1e3]
-qs = [3.0, 5.0, 5.0]
-aas = [False, False]
-conditions = list(zip(R_backgrounds, qs, aas))
+N_sim = np.linspace(N_theo[0], N_theo[-1], 8).astype(int)
+conditions = [
+    # R_bg, q, annealed_average
+    (0.1e3, 5.0, False),
+    (10e3, 3.0, False)]
 
 fp_theo, fp_sim = [], []
 with tqdm(total=len(N_sim) * len(conditions)) as pbar:
