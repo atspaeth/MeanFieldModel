@@ -1,4 +1,5 @@
 import os
+import functools
 import itertools
 import pickle
 import numpy as np
@@ -485,17 +486,20 @@ def backend_unimplemented(*args, **kwargs):
     raise NotImplementedError('Backend not yet supported.')
 
 
-SIM_BACKENDS = dict(
-    default=sim_neurons_nest,
-    nest=sim_neurons_nest,
-    bindsnet=sim_neurons_bindsnet,
-    norse=backend_unimplemented,
-    brian2=sim_neurons_brian2)
+SIM_BACKENDS = {
+    'default': sim_neurons_nest,
+    'nest': sim_neurons_nest,
+    'bindsnet': sim_neurons_bindsnet,
+    'bindsnet:cpu': functools.partial(sim_neurons_bindsnet, device='cpu'),
+    'bindsnet:gpu': functools.partial(sim_neurons_bindsnet, device='cuda'),
+    'norse': backend_unimplemented,
+    'brian2': sim_neurons_brian2
+}
 
 
 class LIF:
     def __init__(self, backend='default'):
-        self.backend = backend
+        self.backend = backend.split(':', 1)[0]
 
     @property
     def model(self):
