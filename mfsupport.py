@@ -218,6 +218,7 @@ def firing_rates(model, q, M=500, sigma_max=None, R_max=None, cache=True,
     elif (R_max is None) == (sigma_max is None):
         raise ValueError('Either R_max or sigma_max must be given!')
 
+    model = lookup_model(model, backend)
     R = R_max if uniform_input else np.linspace(0, R_max, num=M)
     sim = SIM_BACKENDS[backend] if cache else SIM_BACKENDS[backend].func
     sd = sim(model=model, q=q, R=R, M=M, seed=seed, **kwargs)
@@ -446,16 +447,53 @@ def sim_neurons_brian2(model, q, R, dt, T, M=None, connectivity=None,
     return ba.SpikeData(monitor.i, monitor.t, length=T, N=M)
 
 
-def sim_neurons_unimplemented(*args, **kwargs):
-    raise NotImplementedError('Brian2 is not yet supported.')
+def backend_unimplemented(*args, **kwargs):
+    raise NotImplementedError('Backend not yet supported.')
 
 
 SIM_BACKENDS = dict(
     default=sim_neurons_nest,
     nest=sim_neurons_nest,
     bindsnet=sim_neurons_bindsnet,
-    norse=sim_neurons_unimplemented,
+    norse=backend_unimplemented,
     brian2=sim_neurons_brian2)
+
+
+def model_dict_nest():
+    return dict(
+        LIF='iaf_psc_delta')
+
+
+def model_dict_brian2():
+    return dict(
+        LIF={
+            'model': '''
+                dv/dt = -v/tau : volt (unless refractory)
+            ''',
+            'threshold': 'v > vt',
+            'reset': 'v=0 * mV',
+            'namespace': {
+                'tau': 10*br.ms,
+                'vt': 15*br.mV},
+            'refractory': 2*br.ms,
+            'method': 'euler'})
+
+
+def model_dict_bindsnet():
+    return dict(
+        LIF=bn.LIFNodes)
+
+
+MODEL_DICTS = dict(
+    default=model_dict_nest,
+    nest=model_dict_nest,
+    bindsnet=model_dict_bindsnet,
+    norse=backend_unimplemented,
+    brian2=model_dict_brian2)
+
+
+def lookup_model(name, backend='default'):
+    return MODEL_DICTS.get(backend, dict)().get(name, name)
 
 
 def voltage_slew_to_current(neuron, slew):
