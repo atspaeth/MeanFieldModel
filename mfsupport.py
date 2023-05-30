@@ -15,15 +15,19 @@ memory = Memory(location='.cache', verbose=0)
 def lazy_package(full_name):
     if callable(full_name):
         return lazy_package(full_name.__name__)(full_name)
-    class stub:
-        def __init__(self, func):
-            self.func = func
-        def __getattr__(self, attr):
-            from importlib import import_module
-            globals()[self.func.__name__] = import_module(full_name)
-            self.func()
-            return getattr(globals()[self.func.__name__], attr)
-    return stub
+    def wrapper(func):
+        # If the module is already loaded, don't stub it back out!
+        if func.__name__ in globals():
+            return globals()[func.__name__]
+        # If the module isn't loaded, just put this stub in place for now.
+        class stub:
+            def __getattr__(self, attr):
+                from importlib import import_module
+                globals()[func.__name__] = import_module(full_name)
+                func()
+                return getattr(globals()[func.__name__], attr)
+        return stub()
+    return wrapper
 
 @lazy_package
 def nest():
