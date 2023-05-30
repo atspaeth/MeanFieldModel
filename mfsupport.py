@@ -435,8 +435,8 @@ def sim_neurons_brian2(model, q, R, dt, T, M=None, connectivity=None,
     # All constructed objects must be explicitly named and in scope so Brian
     # can extract them for the run() call.
     if len(R) == 1:
-        input_pos = br.PoissonInput(neurons, 'v', 1, R[0]/2*br.Hz, q)
-        input_neg = br.PoissonInput(neurons, 'v', 1, R[0]/2*br.Hz, -q)
+        input_pos = br.PoissonInput(neurons, 'v', 1, 'R/2', q)
+        input_neg = br.PoissonInput(neurons, 'v', 1, 'R/2', -q)
     else:
         # For each postsynaptic neuron, create Npre separate presynaptic
         # Poisson inputs. The odd ones have negative weights, and the split
@@ -447,8 +447,36 @@ def sim_neurons_brian2(model, q, R, dt, T, M=None, connectivity=None,
         syn = br.Synapses(source, neurons, on_pre='v_post += (-1)**i * q')
         syn.connect(j=f'int(i/{Npre})')
 
-    monitor = br.SpikeMonitor(neurons)
-    br.run(T*br.ms, namespace=dict(q=q*br.mV))
+    with tqdm(total=T+warmup_time, unit='sim sec', unit_scale=1e-3,
+              disable=progress_interval is None) as pbar:
+        if progress_interval is None or progress_interval <= 0:
+            progress_interval = 1e2
+
+        # Create the namespace for all simulations. Note that this R is only
+        # relevant for the case where there is only one rate, and is ignored
+        # in the case of a range of values.
+        namespace = dict(R=R[0]*br.Hz, q=q*br.mV)
+
+        # Run the warmup simulation.
+        if warmup_time > 0:
+            if len(R) != 1:
+                raise ValueError('Warmup not supported for multiple rates.')
+            step_length = warmup_time / warmup_steps
+            for i in range(warmup_steps):
+                namespace['R'] = (10-i)*R[0]*br.Hz
+                br.run(step_length*br.ms, namespace=namespace)
+
+        # Add a spike monitor and run the proper simulation.
+        residue = T % progress_interval
+        monitor = br.SpikeMonitor(neurons)
+        if residue > net.dt:
+            br.run(residue*br.ms, namespace=namespace)
+            pbar.update(residue)
+        for i in range(int(T/progress_interval)):
+            br.run(progress_interval*br.ms, namespace=namespace)
+            pbar.update(progress_interval)
+
+    # Translate the spike monitor into a SpikeData object.
     return ba.SpikeData(monitor.i, monitor.t, length=T, N=M)
 
 
