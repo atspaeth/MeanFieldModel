@@ -494,6 +494,9 @@ SIM_BACKENDS = dict(
 
 
 class LIF:
+    def __init__(self, backend='default'):
+        self.backend = backend
+
     @property
     def model(self):
         match self.backend:
