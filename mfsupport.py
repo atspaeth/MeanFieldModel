@@ -303,18 +303,17 @@ def sim_neurons_nest(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
                         ).subtime(warmup_time, ...)
 
 
-def run_net_with_rates(net, R, T):
+def run_net_with_rates(net, R, T, Npre):
     '''
     Given a BindsNET network whose input layer is called 'source' and a set
     of input rates R, generate balanced Poisson inputs and run the network.
     '''
-    # We have to divide R by two because it's split into the two balanced
+    # We have to divide R by Npre because it's split into the Npre balanced
     # parts, but also change units from Hz to spikes per time step.
-    # TODO this should use their builtin Poisson encoder instead.
     steps = int(T / net.dt)
-    rates = torch.vstack([R/2 * net.dt/1e3]*steps)
-    input_data = (torch.poisson(rates)
-                  - torch.poisson(rates)).char()
+    R = R.repeat_interleave(Npre) / Npre
+    rates = torch.vstack([R * net.dt/1e3]*steps)
+    input_data = torch.poisson(rates).byte()
     net.run(inputs={'source': input_data}, time=T)
 
 
@@ -337,26 +336,32 @@ def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
         elif len(R) != M:
             raise ValueError('R must be scalar or length M.')
 
-        # Build the base network and its layers.
+        # Build the base network and its layers. Split each conceptual
+        # Poisson input neuron into Npre separate neurons so weights can be
+        # well-defined and no neuron has to fire more than once per step.
+        Npre = 42
         net = bn.Network(dt=dt)
         net.to(device)
-        source = bn.nodes.Input(n=M, traces=True)
+        source = bn.nodes.Input(n=Npre*M)
         source.to(device)
-        neurons = model(n=M, traces=True, **model_params)
+        neurons = model(n=M, **model_params)
         neurons.to(device)
         net.add_layer(source, name='source')
         net.add_layer(neurons, name='neurons')
         if connectivity is not None:
             connectivity.connect(net)
 
-        # Connect the input to the neurons one-to-one with weight q.
+        # Connect the input to the neurons Npre-to-one with weight ±q,
+        # alternating so the odd indices are negative.
+        w = torch.eye(M).repeat_interleave(Npre, dim=1)
+        w *= (-1)**torch.arange(w.shape[1]) * q
         net.add_connection(
             source='source',
             target='neurons',
             connection=bn.topology.Connection(
                 source=source,
                 target=neurons,
-                w=q*torch.eye(M)))
+                w=w.T))
 
         # If there is a progress interval, use a progress bar. If it is
         # zero, the chunk size for simulations should be 100ms.
@@ -374,7 +379,7 @@ def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
             warmup_T = warmup_time / warmup_steps
             for i in range(warmup_steps):
                 warmup_ramp = np.interp(i, [0,warmup_steps], [10,1])
-                run_net_with_rates(net, warmup_ramp*R, warmup_T)
+                run_net_with_rates(net, warmup_ramp*R, warmup_T, Npre)
                 if pbar: pbar.update(warmup_T)
 
         # Add recording before finishing the simulation.
@@ -385,9 +390,9 @@ def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
         # Run the simulation broken up into chunks.
         residue = T % progress_interval
         if residue > net.dt:
-            run_net_with_rates(net, R, residue)
+            run_net_with_rates(net, R, residue, Npre)
         for i in range(int(T/progress_interval)):
-            run_net_with_rates(net, R, progress_interval)
+            run_net_with_rates(net, R, progress_interval, Npre)
             if pbar: pbar.update(progress_interval)
 
         if pbar: pbar.close()
