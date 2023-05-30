@@ -212,16 +212,20 @@ def reset_nest(dt, seed):
 
 def firing_rates(model, q, M=500, sigma_max=None, R_max=None, cache=True,
                  return_times=False, uniform_input=False, seed=42,
-                 backend='default', **kwargs):
+                 backend='default', model_params={}, **kwargs):
     if R_max is None and sigma_max is not None:
         R_max = 1e3 * (sigma_max / q)**2
     elif (R_max is None) == (sigma_max is None):
         raise ValueError('Either R_max or sigma_max must be given!')
-
-    model = lookup_model(model, backend)
     R = R_max if uniform_input else np.linspace(0, R_max, num=M)
+
+    if hasattr(model, 'model'):
+        model = model(backend)
+        model_params = model_params or model.params
+        model = model.model
     sim = SIM_BACKENDS[backend] if cache else SIM_BACKENDS[backend].func
-    sd = sim(model=model, q=q, R=R, M=M, seed=seed, **kwargs)
+    sd = sim(model=model, q=q, R=R, M=M, seed=seed,
+             model_params=model_params, **kwargs)
     return R, (sd if return_times else sd.rates('Hz'))
 
 
@@ -405,7 +409,7 @@ def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
 
 @memory.cache(ignore=['progress_interval'])
 def sim_neurons_brian2(model, q, R, dt, T, M=None, connectivity=None,
-                       warmup_time=0.0, warmup_steps=10,
+                       warmup_time=0.0, warmup_steps=10, model_params={},
                        progress_interval=None, seed=42):
     '''
     Simulate M neurons using Brian2. They receive balanced Poisson inputs
@@ -414,7 +418,8 @@ def sim_neurons_brian2(model, q, R, dt, T, M=None, connectivity=None,
     Since Brian2 has no built-in models, a model must be specified as an
     entire dictionary where 'model' contains a multi-line string with its
     dynamic equations, 'threshold' contains the spike threshold condition as
-    a boolean expression, etc.
+    a boolean expression, etc. A model parameter dictionary is accepted for
+    compatibility with other solvers but is ignored.
     '''
     R = np.atleast_1d(R)
     if M is None:
@@ -459,41 +464,38 @@ SIM_BACKENDS = dict(
     brian2=sim_neurons_brian2)
 
 
-def model_dict_nest():
-    return dict(
-        LIF='iaf_psc_delta')
+class LIF:
+    @property
+    def model(self):
+        match self.backend:
+            case 'default' | 'nest':
+                return 'iaf_psc_delta'
+            case 'bindsnet':
+                return bn.nodes.LIFNodes
+            case 'brian2':
+                return {
+                    'model': '''
+                        dv/dt = -v/tau : volt (unless refractory)
+                    ''',
+                    'threshold': 'v > vt',
+                    'reset': 'v=0 * mV',
+                    'namespace': {
+                        'tau': 10*br.ms,
+                        'vt': 15*br.mV},
+                    'refractory': 2*br.ms,
+                    'method': 'euler'}
 
-
-def model_dict_brian2():
-    return dict(
-        LIF={
-            'model': '''
-                dv/dt = -v/tau : volt (unless refractory)
-            ''',
-            'threshold': 'v > vt',
-            'reset': 'v=0 * mV',
-            'namespace': {
-                'tau': 10*br.ms,
-                'vt': 15*br.mV},
-            'refractory': 2*br.ms,
-            'method': 'euler'})
-
-
-def model_dict_bindsnet():
-    return dict(
-        LIF=bn.LIFNodes)
-
-
-MODEL_DICTS = dict(
-    default=model_dict_nest,
-    nest=model_dict_nest,
-    bindsnet=model_dict_bindsnet,
-    norse=backend_unimplemented,
-    brian2=model_dict_brian2)
-
-
-def lookup_model(name, backend='default'):
-    return MODEL_DICTS.get(backend, dict)().get(name, name)
+    @property
+    def params(self):
+        if self.backend == 'bindsnet':
+            return dict(
+                thresh=-55.0,
+                rest=-70.0,
+                reset=-70.0,
+                refrac=2,
+                tc_decay=10.0)
+        else:
+            return {}
 
 
 def voltage_slew_to_current(neuron, slew):
