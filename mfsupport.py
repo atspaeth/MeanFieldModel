@@ -261,7 +261,7 @@ def sim_neurons_nest(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
                  dict(weight=psp_corrected_weight(neurons[0], -q)))
 
     if connectivity is not None:
-        connectivity.connect(neurons)
+        connectivity.connect_nest(neurons)
 
     rec = nest.Create('spike_recorder')
     nest.Connect(neurons, rec)
@@ -349,7 +349,7 @@ def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
         net.add_layer(source, name='source')
         net.add_layer(neurons, name='neurons')
         if connectivity is not None:
-            connectivity.connect(net)
+            connectivity.connect_bindsnet(net)
 
         # Connect the input to the neurons Npre-to-one with weight ±q,
         # alternating so the odd indices are negative.
@@ -410,8 +410,10 @@ def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
     return sd
 
 
-@memory.cache()
-def sim_neurons_brian2(model, q, R, dt, T, M=None, seed=42):
+@memory.cache(ignore=['progress_interval'])
+def sim_neurons_brian2(model, q, R, dt, T, M=None, connectivity=None,
+                       warmup_time=0.0, warmup_steps=10,
+                       progress_interval=None, seed=42):
     '''
     Simulate M neurons using Brian2. They receive balanced Poisson inputs
     with connection strength q and rate R.
@@ -429,6 +431,8 @@ def sim_neurons_brian2(model, q, R, dt, T, M=None, seed=42):
 
     br.defaultclock.dt = dt*br.ms
     neurons = br.NeuronGroup(M, **model)
+    if connectivity is not None:
+        connectivity.connect_brian2(neurons)
     monitor = br.SpikeMonitor(neurons)
     # All constructed objects must be explicitly named and in scope so Brian
     # can extract them for the run() call.
@@ -499,11 +503,17 @@ def psp_corrected_weight(neuron, q):
 
 
 class Connectivity:
-    def connect(self, neurons):
-        if hasattr(neurons, 'cuda'):
-            self.connect_bindsnet(neurons)
-        else:
-            self.connect_nest(neurons)
+    def connect_bindsnet(self, neurons):
+        name = self.__class__.__name__
+        raise NotImplementedError(f'{name} does not support BindsNET.')
+
+    def connect_nest(self, neurons):
+        name = self.__class__.__name__
+        raise NotImplementedError(f'{name} does not support NEST.')
+
+    def connect_brian2(self, neurons):
+        name = self.__class__.__name__
+        raise NotImplementedError(f'{name} does not support Brian2.')
 
 
 class RandomConnectivity(Connectivity):
@@ -590,9 +600,17 @@ class CombinedConnectivity:
             else:
                 self.connectivities.append(c)
 
-    def connect(self, neurons):
+    def connect_nest(self, neurons):
         for conn in self.connectivities:
-            conn.connect(neurons)
+            conn.connect_nest(neurons)
+
+    def connect_bindsnet(self, neurons):
+        for conn in self.connectivities:
+            conn.connect_bindsnet(neurons)
+
+    def connect_brian2(self, neurons):
+        for conn in self.connectivities:
+            conn.connect_brian2(neurons)
 
 
 class BalancedPoisson(CombinedConnectivity):
