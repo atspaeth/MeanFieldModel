@@ -10,7 +10,6 @@ import numpy as np
 from scipy import stats, signal, optimize, special, sparse
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-import nest
 import pickle
 
 import mfsupport
@@ -18,10 +17,8 @@ from mfsupport import softplus_ref, rs79, softplus, zerlaut_erf, \
     parametrized_F_Finv, find_fps, firing_rates, softplus_ref_q_dep, \
     BiasedPoisson, BalancedPoisson, RandomConnectivity, \
     BernoulliAllToAllConnectivity, figure
-mfsupport.figdir('~/Dropbox/Apps/Overleaf/MeanField/Figures/')
-mfsupport.reset_nest(0.1)
+# mfsupport.figdir('~/Dropbox/Apps/Overleaf/MeanField/Figures/')
 
-nest.set_verbosity('M_WARNING')
 plt.ion()
 plt.rcParams['figure.dpi'] = 300
 if 'elsevier' in plt.style.available:
@@ -426,22 +423,21 @@ with figure('05 Sim Fixed Points', save_exts=[]) as f:
 T = 1e5
 model = 'iaf_psc_delta'
 sigma_max = 10.0
-params = [dict(t_ref=0.0), None]
+t_refs = [0.0, 2.0]
 
 with figure('06 LIF Analytical Solutions',
             save_args=dict(bbox_inches='tight')) as f:
     axes = f.subplots(2, 2)
-    for mp, axr, axe in zip(params, *axes):
+    for t_ref, axr, axe in zip(t_refs, *axes):
         conditions = {c: firing_rates(**p, T=T, sigma_max=sigma_max,
-                                      model_params=mp, model=model)
+                                      model_params=dict(t_ref=t_ref),
+                                      model=model, dt=0.001)
                       for c,p in [
-                          ('Limiting Behavior', dict(q=0.1, dt=0.001)),
-                          # ('$h = \\qty{0.1}{ms}$', dict(q=0.1, dt=0.1)),
-                          ('$q = \\qty{1.0}{mV}$', dict(q=1.0, dt=0.001)),
+                          ('Limiting Behavior', dict(q=0.1)),
+                          ('$q = \\qty{1.0}{mV}$', dict(q=1.0)),
                       ]}
 
         R = conditions['Limiting Behavior'][0]
-        t_ref = mp['t_ref'] if mp else nest.GetDefaults(model, 't_ref')
         ratehats = rs79(R, 0.1, 10, 15, t_ref)
 
         x = np.linspace(0, 100, num=len(R))
