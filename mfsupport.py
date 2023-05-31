@@ -615,6 +615,16 @@ class RandomConnectivity(Connectivity):
                          dict(synapse_model='static_synapse',
                               weight=weight, **self._sp))
 
+    def connect_brian2(self, grp):
+        import brian2 as br
+        syn = br.Synapses(grp, grp, 'w : volt', on_pre='v_post += w')
+        i = np.hstack([np.random.choice(len(grp), self.N, False)
+                       for _ in range(len(grp))])
+        j = np.repeat(np.arange(len(grp)), self.N)
+        syn.connect(i=i, j=j)
+        syn.w = syn.w * np.random.choice([1, -1], size=syn.w.shape) * self.q
+        return syn
+
 
 class BernoulliAllToAllConnectivity(Connectivity):
     def __init__(self, p, q):
