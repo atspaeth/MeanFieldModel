@@ -615,79 +615,18 @@ class RandomConnectivity(Connectivity):
                               weight=weight, **self._sp))
 
 
-class BernoulliAllToAllConnectivity:
+class BernoulliAllToAllConnectivity(Connectivity):
     def __init__(self, p, q):
         self.p = p
         self.q = q
 
-    def connect(self, neurons):
+    def connect_nest(self, neurons):
         M = len(neurons)
         for q in (self.q, -self.q):
             nest.Connect(neurons, neurons, 'all_to_all',
                          dict(synapse_model='bernoulli_synapse',
                               weight=psp_corrected_weight(neurons[0], q),
                               p_transmit=self.p/2))
-
-
-class BiasedPoisson:
-    def __init__(self, N, r, q):
-        self.N = N
-        self.r = np.atleast_1d(r)
-        self.q = np.atleast_1d(q)
-        if len(self.r) == 1 and len(self.q) == 1:
-            self.M = None
-        elif len(self.r) == 1:
-            self.M = len(self.q)
-        elif len(self.q) == 1:
-            self.M = len(self.r)
-        elif len(self.r) == len(self.q):
-            self.M = len(self.r)
-        else:
-            raise ValueError('r and q must be scalar or have length M.')
-
-    def connect(self, neurons):
-        if self.M is not None and len(neurons) != self.M:
-            raise ValueError('The number of neurons must be equal to M.')
-
-        total_rate = self.N * self.r
-        stim = nest.Create('poisson_generator', n=len(total_rate),
-                           params=dict(rate=total_rate))
-
-        for n,w,s in zip(neurons, itertools.cycle(self.q),
-                         itertools.cycle(stim)):
-            # Set the bias current to counteract the mean Poisson input.
-            n.I_e -= voltage_slew_to_current(n, s.rate * w)
-            nest.Connect(s, n, 'one_to_one',
-                         dict(weight=psp_corrected_weight(n, w)))
-
-
-class CombinedConnectivity:
-    def __init__(self, *connectivities):
-        self.connectivities = []
-        for c in connectivities:
-            if isinstance(c, CombinedConnectivity):
-                self.connectivities.extend(c.connectivities)
-            else:
-                self.connectivities.append(c)
-
-    def connect_nest(self, neurons):
-        for conn in self.connectivities:
-            conn.connect_nest(neurons)
-
-    def connect_bindsnet(self, neurons):
-        for conn in self.connectivities:
-            conn.connect_bindsnet(neurons)
-
-    def connect_brian2(self, neurons):
-        for conn in self.connectivities:
-            conn.connect_brian2(neurons)
-
-
-class BalancedPoisson(CombinedConnectivity):
-    def __init__(self, N, r, q):
-        super().__init__(
-            BiasedPoisson(N//2, r, q),
-            BiasedPoisson(N//2, r, -q))
 
 
 @contextmanager

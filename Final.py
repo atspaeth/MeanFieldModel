@@ -15,8 +15,7 @@ import pickle
 import mfsupport
 from mfsupport import softplus_ref, rs79, softplus, zerlaut_erf, \
     parametrized_F_Finv, find_fps, firing_rates, softplus_ref_q_dep, \
-    BiasedPoisson, BalancedPoisson, RandomConnectivity, \
-    BernoulliAllToAllConnectivity, figure
+    RandomConnectivity, BernoulliAllToAllConnectivity, figure, LIF
 # mfsupport.figdir('~/Dropbox/Apps/Overleaf/MeanField/Figures/')
 
 plt.ion()
@@ -226,8 +225,7 @@ q = 5.0
 Rb = 0.1e3
 rs = np.linspace(0, 50, num=1000)
 
-R, rates = firing_rates(model='iaf_psc_delta', q=q, dt=dt, T=1e5, M=100,
-                        sigma_max=10.0)
+R, rates = firing_rates(LIF, q, dt=dt, T=1e5, M=100, sigma_max=10.0)
 p = optimize.curve_fit(softplus_ref, R, rates, method='trf')[0]
 
 lses = [(0, (3,1)), (3, (6,1)), (0, (1,0)),
@@ -342,8 +340,8 @@ print('Upper bifurcation has stable FR =',
 
 M = 10000
 dt = 0.1
-T = 3e3
-model = 'LIF'
+T = 2e3
+model = LIF
 
 def mean_field_fixed_points(N, R_background, q):
     R, rates = firing_rates(model=model, q=q, dt=dt, T=1e5, M=100,
@@ -421,7 +419,7 @@ with figure('05 Sim Fixed Points', save_exts=[]) as f:
 # not away from it.
 
 T = 1e5
-model = 'iaf_psc_delta'
+model = LIF
 sigma_max = 10.0
 t_refs = [0.0, 2.0]
 
@@ -474,7 +472,7 @@ with figure('06 LIF Analytical Solutions',
 # R and q, fit a single transfer function to all of them, and plot both the
 # transfer function and its error as a 3D surface.
 
-model = 'iaf_psc_delta'
+model = LIF
 Tmax = 1e7
 dt = 0.1
 qs = np.geomspace(0.1, 10, num=20)
