@@ -435,19 +435,20 @@ def sim_neurons_brian2(model, q, R, dt, T, M=None, connectivity=None,
     R = np.atleast_1d(R)
     if M is None:
         M = len(R)
-    elif  len(R) != M:
+    elif len(R) not in (1, M):
         raise ValueError('R must be scalar or length M.')
 
     br.defaultclock.dt = dt*br.ms
     neurons = br.NeuronGroup(M, **model)
-    if connectivity is not None:
-        connectivity.connect_brian2(neurons)
 
     # All constructed objects must be explicitly named and in scope so Brian
     # can extract them for the run() call.
+    if connectivity is not None:
+        syn_recurrent = connectivity.connect_brian2(neurons)
+
     if len(R) == 1:
-        input_pos = br.PoissonInput(neurons, 'v', 1, 'R/2', q)
-        input_neg = br.PoissonInput(neurons, 'v', 1, 'R/2', -q)
+        input_pos = br.PoissonInput(neurons, 'v', 1, R[0]/2*br.Hz, q*br.mV)
+        input_neg = br.PoissonInput(neurons, 'v', 1, R[0]/2*br.Hz, -q*br.mV)
     else:
         # For each postsynaptic neuron, create Npre separate presynaptic
         # Poisson inputs. The odd ones have negative weights, and the split
@@ -462,7 +463,7 @@ def sim_neurons_brian2(model, q, R, dt, T, M=None, connectivity=None,
         # Create the namespace for all simulations. Note that this R is only
         # relevant for the case where there is only one rate, and is ignored
         # in the case of a range of values.
-        namespace = dict(R=R[0]*br.Hz, q=q*br.mV)
+        namespace = dict(q=q*br.mV)
 
         # Run the warmup simulation.
         if warmup_time > 0:
@@ -470,7 +471,7 @@ def sim_neurons_brian2(model, q, R, dt, T, M=None, connectivity=None,
                 raise ValueError('Warmup not supported for multiple rates.')
             step_length = warmup_time / warmup_steps
             for i in range(warmup_steps):
-                namespace['R'] = (10-i)*R[0]*br.Hz
+                input_pos.R = input_neg.R = (10-i)*R[0]/2*br.Hz
                 br.run(step_length*br.ms, namespace=namespace)
 
         # Add a spike monitor and run the proper simulation.
