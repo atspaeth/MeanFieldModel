@@ -236,7 +236,7 @@ def sim_progress(total_time, interval):
     chunk size for simulations should be 100ms.
     '''
     pbar = tqdm(total=total_time, unit='sim sec', unit_scale=1e-3,
-                disable=interval is not None)
+                disable=interval is None)
     pbar.interval = 1e2 if interval is None or interval <= 0 else interval
     return pbar
 
@@ -597,8 +597,8 @@ class RandomConnectivity(Connectivity):
         topology = torch.zeros(M, M)
         for i in range(M):
             idces = torch.randperm(M)[:self.N]
-            topology[i, idces[:self.N//2]] = self.q
-            topology[i, idces[self.N//2:]] = -self.q
+            topology[idces[:self.N//2], i] = self.q
+            topology[idces[self.N//2:], i] = -self.q
         conn = bn.topology.Connection(
             net.layers['neurons'], net.layers['neurons'],
             w=topology, **self._sp)
