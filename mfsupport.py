@@ -660,16 +660,20 @@ def figure(name, save_args={}, save_exts=['png'], **kwargs):
         f.savefig(path, **save_args)
 
 
+try:
+    _figdir_before_reload = figdir.dir
+except NameError:
+    _figdir_before_reload = 'figures'
+
 def figdir(path=None):
     if path is not None:
         path = os.path.expanduser(path.strip())
-        if path == '':
-            figdir.dir = 'figures'
-        elif path[0] == '/':
+        if path[0] == '/':
             figdir.dir = path
         else:
             figdir.dir = os.path.join('figures', path)
         if not os.path.exists(figdir.dir):
             os.makedirs(figdir.dir)
     return os.path.abspath(figdir.dir)
-figdir('')
+
+figdir.dir = _figdir_before_reload
