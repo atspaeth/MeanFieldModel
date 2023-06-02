@@ -446,17 +446,17 @@ def sim_neurons_brian2(model, q, R, dt, T, M=None, connectivity=None,
     if connectivity is not None:
         syn_recurrent = connectivity.connect_brian2(neurons)
 
+    Npre = 150
     if len(R) == 1:
-        input_pos = br.PoissonInput(neurons, 'v', 1, R[0]/2*br.Hz, q*br.mV)
-        input_neg = br.PoissonInput(neurons, 'v', 1, R[0]/2*br.Hz, -q*br.mV)
+        input_pos = br.PoissonInput(neurons, 'v', Npre//2, R[0]/Npre*br.Hz, 'q')
+        input_neg = br.PoissonInput(neurons, 'v', Npre//2, R[0]/Npre*br.Hz, '-q')
     else:
         # For each postsynaptic neuron, create Npre separate presynaptic
         # Poisson inputs. The odd ones have negative weights, and the split
         # must be significantly greater than 2 because it's impossible for
         # a single neuron to spike multiple times per step.
-        Npre = 42
         source = br.PoissonGroup(Npre*M, R.repeat(Npre)/Npre*br.Hz)
-        syn = br.Synapses(source, neurons, on_pre='v_post += (-1)**i * q')
+        syn = br.Synapses(source, neurons, on_pre='v += (-1)**i * q')
         syn.connect(j=f'int(i/{Npre})')
 
     with sim_progress(T+warmup_time, progress_interval) as pbar:
@@ -470,9 +470,10 @@ def sim_neurons_brian2(model, q, R, dt, T, M=None, connectivity=None,
             if len(R) != 1:
                 raise ValueError('Warmup not supported for multiple rates.')
             step_length = warmup_time / warmup_steps
-            for i in range(warmup_steps):
-                input_pos.R = input_neg.R = (10-i)*R[0]/2*br.Hz
+            for i in range(warmup_steps, 0, -1):
+                input_pos.R = input_neg.R = i*R[0]/2*br.Hz
                 br.run(step_length*br.ms, namespace=namespace)
+                pbar.update(step_length)
 
         # Add a spike monitor and run the proper simulation.
         monitor = br.SpikeMonitor(neurons)
@@ -617,12 +618,13 @@ class RandomConnectivity(Connectivity):
 
     def connect_brian2(self, grp):
         import brian2 as br
-        syn = br.Synapses(grp, grp, 'w : volt', on_pre='v_post += w')
+        syn = br.Synapses(grp, grp, 'w : volt', on_pre='v_post += w',
+                          namespace=dict(q=self.q*br.mV))
         i = np.hstack([np.random.choice(len(grp), self.N, False)
                        for _ in range(len(grp))])
         j = np.repeat(np.arange(len(grp)), self.N)
         syn.connect(i=i, j=j)
-        syn.w = syn.w * np.random.choice([1, -1], size=syn.w.shape) * self.q
+        syn.w = 'q * (int(rand() < 0.5) - 0.5)*2'
         return syn
 
 
