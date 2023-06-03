@@ -590,10 +590,10 @@ class Connectivity:
 
 
 class RandomConnectivity(Connectivity):
-    def __init__(self, N, q, synapse_params={}):
+    def __init__(self, N, q, delay=5.0):
         self.N = N
         self.q = q
-        self._sp = synapse_params
+        self.delay = delay
 
     def connect_bindsnet(self, net):
         M = net.layers['neurons'].n
@@ -604,7 +604,7 @@ class RandomConnectivity(Connectivity):
             topology[idces[self.N//2:], i] = -self.q
         conn = bn.topology.Connection(
             net.layers['neurons'], net.layers['neurons'],
-            w=topology, **self._sp)
+            w=topology, delay=self.delay)
         net.add_connection(conn, 'neurons', 'neurons')
 
     def connect_nest(self, neurons):
@@ -615,12 +615,12 @@ class RandomConnectivity(Connectivity):
                          dict(rule='fixed_indegree',
                               indegree=self.N//2),
                          dict(synapse_model='static_synapse',
-                              weight=weight, **self._sp))
+                              weight=weight, delay=self.delay))
 
     def connect_brian2(self, grp):
-        import brian2 as br
         syn = br.Synapses(grp, grp, 'w : volt', on_pre='v_post += w',
-                          namespace=dict(q=self.q*br.mV))
+                          namespace=dict(q=self.q*br.mV),
+                          delay=self.delay*br.ms)
         i = np.hstack([np.random.choice(len(grp), self.N, False)
                        for _ in range(len(grp))])
         j = np.repeat(np.arange(len(grp)), self.N)
