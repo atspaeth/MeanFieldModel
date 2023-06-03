@@ -481,7 +481,8 @@ def sim_neurons_brian2(model, q, R, dt, T, M=None, connectivity=None,
             br.run(step*br.ms, namespace=namespace)
 
     # Translate the spike monitor into a SpikeData object.
-    return ba.SpikeData(monitor.i, monitor.t, length=T, N=M)
+    return ba.SpikeData(monitor.i, monitor.t/br.ms - warmup_time,
+                        length=T, N=M)
 
 
 def backend_unimplemented(*args, **kwargs):
