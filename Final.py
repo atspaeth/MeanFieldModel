@@ -313,14 +313,14 @@ def bifurcate_bistability(lower, upper, rtol=1e-3):
     return (upper + lower) / 2
 
 
-N_star_lower = bifurcate_bistability(Ns[1], Ns[2])
+N_star_lower = bifurcate_bistability(*Ns[-2:])
 print('Bifurcation to bistability at N =', N_star_lower)
 print('Lower bifurcation has 0 Hz stable, saddle node at FR =',
       find_fps(
           80, *parametrized_F_Finv(p, Rb,
                                    int(N_star_lower+1), q))[0][-1])
 
-N_star_upper = bifurcate_bistability(Ns[-1], 100.0)
+N_star_upper = bifurcate_bistability(upper_Ns[0], upper_Ns[-1])
 print('Bifurcation to monostability at N =', N_star_upper)
 print('Upper bifurcation has stable FR =',
       find_fps(
@@ -342,10 +342,12 @@ M = 10000
 dt = 0.1
 T = 2e3
 model = LIF
+backend = 'NEST'
 
 def mean_field_fixed_points(N, R_background, q):
     R, rates = firing_rates(model=model, q=q, dt=dt, T=1e5, M=100,
-                            sigma_max=10.0)
+                            sigma_max=10.0, backend=backend.lower(),
+                            progress_interval=10.0)
     p = optimize.curve_fit(softplus_ref, R, rates, method='trf')[0]
 
     F, Finv = parametrized_F_Finv(p, R_background, N, q)
@@ -360,13 +362,13 @@ def sim_fixed_points(N, R_background, q, annealed_average=False):
         connectivity = BernoulliAllToAllConnectivity(N/M, q)
     else:
         connectivity = RandomConnectivity(
-            N, q, synapse_params=dict(delay=5.0))
+            N, q, delay=5.0)
     same_args = dict(model=model, q=q, dt=dt, T=T, M=M, R_max=R_background,
                      progress_interval=10.0, uniform_input=True,
-                     cache=False, connectivity=connectivity,
-                     return_times=True)
-    R, sd_top = firing_rates(warmup_time=0.5e3, **same_args)
-    R, sd_bot = firing_rates(**same_args)
+                     connectivity=connectivity, return_times=True,
+                     backend=backend.lower())
+    _, sd_top = firing_rates(warmup_time=1e3, warmup_rate=100e3, **same_args)
+    _, sd_bot = firing_rates(**same_args)
     return np.array([sd_bot.subtime(1e3, ...).rates('Hz').mean(),
                      sd_top.subtime(1e3, ...).rates('Hz').mean()])
 
@@ -389,14 +391,14 @@ with tqdm(total=len(N_sim) * len(conditions)) as pbar:
 
 theo_markers = ['k--', 'k-', None]
 sim_markers = ['^', 'o', 's']
-with figure('05 Sim Fixed Points', save_exts=[]) as f:
+with figure(f'05 Sim Fixed Points {backend}') as f:
     ax = f.gca()
     for i, (Rb,q,aa) in enumerate(conditions):
         qlb = f'$q=\qty{{{q}}}{{mV}}$'
         if Rb > 1e3:
-            Rlb = f'$R_\\mathrm{{b}} = \\qty{{{int(Rb/1e3)}}}{{kHz}}$'
+            Rlb = f'$R_\\mathrm{{b}} = \\qty{{{round(Rb/1e3)}}}{{kHz}}$'
         else:
-            Rlb = f'$R_\\mathrm{{b}} = \\qty{{{int(Rb)}}}{{Hz}}$'
+            Rlb = f'$R_\\mathrm{{b}} = \\qty{{{Rb/1000}}}{{kHz}}$'
         label = f'{qlb}, {Rlb}'
         if aa:
             label += ', annealed'
