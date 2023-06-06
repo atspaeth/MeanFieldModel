@@ -625,7 +625,7 @@ class RandomConnectivity(Connectivity):
                        for _ in range(len(grp))])
         j = np.repeat(np.arange(len(grp)), self.N)
         syn.connect(i=i, j=j)
-        syn.w = 'q * (int(rand() < 0.5) - 0.5)*2'
+        syn.w = 'q * (-1)**int(rand() < 0.5)'
         return syn
 
 
@@ -641,6 +641,16 @@ class BernoulliAllToAllConnectivity(Connectivity):
                          dict(synapse_model='bernoulli_synapse',
                               weight=psp_corrected_weight(neurons[0], q),
                               p_transmit=self.p/2))
+
+    def connect_brian2(self, grp):
+        # Suppress code generation errors because there's no other way to
+        # avoid a warning literally every timestep apparently.
+        br.codegen.generators.base.logger.log_level_error()
+        syn = br.Synapses(
+            grp, grp, '', namespace=dict(q_syn=self.q*br.mV, p=self.p),
+            on_pre='v_post += q_syn * (-1)**int(rand() < 0.5) * (rand() < p)')
+        syn.connect(condition='i!=j')
+        return syn
 
 
 @contextmanager
