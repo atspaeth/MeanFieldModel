@@ -291,9 +291,9 @@ def sim_neurons_nest(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
         raise ValueError('R must be a scalar or a vector of length M.')
 
     nest.Connect(noise, neurons, conn,
-                 dict(weight=psp_corrected_weight(neurons[0], q)))
+                 dict(weight=psp_corrected_weight(neurons[0], q, model)))
     nest.Connect(noise, neurons, conn,
-                 dict(weight=psp_corrected_weight(neurons[0], -q)))
+                 dict(weight=psp_corrected_weight(neurons[0], -q, model)))
 
     if connectivity is not None:
         connectivity.connect_nest(neurons)
@@ -549,34 +549,39 @@ def voltage_slew_to_current(neuron, slew):
     return slew * nest.GetStatus(neuron[0])[0].get('C_m', 1.0)
 
 
-def psp_corrected_weight(neuron, q):
+def psp_corrected_weight(neuron, q, model_name=None):
     '''
     Take a neuron and a desired synaptic weight for a delta PSP and return
     the synaptic weight which should be used instead so that this neuron
     will receive an equivalent voltage injection from its PSCs.
     '''
-    # Modify the base model name to match the name scheme of the others.
-    if neuron[0].model == 'izhikevich':
+    # Get the base model name, special-casing the builtin Izhikevich because
+    # it doesn't specify its synapse type.
+    model_name = neuron[0].model if model_name is None else model_name
+    if model_name == 'UnknownNode':
+        raise ValueError(
+            'Must provide model name for custom neuron types.')
+    elif model_name == 'izhikevich':
         model = ['izhikevich', 'psc', 'delta']
     else:
-        model = neuron[0].model.split('_')
+        model = model_name.split('_')
 
     # For PSC neurons, it doesn't matter whether they're HH or I&F, but the
     # shape of the PSC does matter. Can assume that all such neurons have
     # membrane capacitance C_m as well as synaptic time constants, except
     # the ones with delta synapses, which inject voltage like Izhikevich.
-    if model[1] == 'psc':
-        postfix = '_ex' if q > 0 else '_in'
-        if len(model) < 3:
-            pass  # skip to the NotImplemented at the end
-        if model[2] == 'delta':
+    postfixes = ['ex', 'exc'] if q > 0 else ['in', 'inh']
+    params = nest.GetStatus(neuron)[0]
+    tau = np.array([params.get('tau_syn_'+postfix, -np.inf)
+                    for postfix in postfixes]).max()
+    match model:
+        case [_, 'psc', 'delta']:
             return q
-        elif model[2] in ('exp', 'alpha'):
-            # Alpha and exponential PSCs differ only in normalization.
-            corr = 1.0 if model[2] == 'exp' else 1/np.e
-            tau = nest.GetStatus(neuron, 'tau_syn'+postfix)[0]
-            return q*corr/tau * neuron.C_m
-    raise NotImplementedError(f'Model {neuron[0].model} not supported.')
+        case [_, 'psc', 'exp']:
+            return q/tau * neuron.C_m
+        case [_, 'psc', 'alpha']:
+            return q/tau/np.e * neuron.C_m
+    raise NotImplementedError(f'Model {model_name} not supported.')
 
 
 class Connectivity:
