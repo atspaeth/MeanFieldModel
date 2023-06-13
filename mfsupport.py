@@ -24,9 +24,13 @@ def lazy_package(full_name):
         class stub:
             def __getattr__(self, attr):
                 from importlib import import_module
-                globals()[func.__name__] = import_module(full_name)
-                func()
-                return getattr(globals()[func.__name__], attr)
+                globals()[func.__name__] = ret = import_module(full_name)
+                try:
+                    func()
+                except Exception as e:
+                    globals()[func.__name__] = self
+                    raise e
+                return getattr(ret, attr)
         return stub()
     return wrapper
 
