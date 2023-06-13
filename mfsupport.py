@@ -210,7 +210,7 @@ def find_fps(r_top, F, Finv, atol=0.1):
 
 def reset_nest(dt, seed):
     nest.ResetKernel()
-    nest.local_num_threads = 10
+    nest.local_num_threads = 8
     nest.resolution = dt
     nest.rng_seed = seed
 
@@ -296,7 +296,7 @@ def sim_neurons_nest(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
                  dict(weight=psp_corrected_weight(neurons[0], -q, model)))
 
     if connectivity is not None:
-        connectivity.connect_nest(neurons)
+        connectivity.connect_nest(neurons, model)
 
     rec = nest.Create('spike_recorder')
     nest.Connect(neurons, rec)
@@ -589,7 +589,7 @@ class Connectivity:
         name = self.__class__.__name__
         raise NotImplementedError(f'{name} does not support BindsNET.')
 
-    def connect_nest(self, neurons):
+    def connect_nest(self, neurons, model_name):
         name = self.__class__.__name__
         raise NotImplementedError(f'{name} does not support NEST.')
 
@@ -616,10 +616,10 @@ class RandomConnectivity(Connectivity):
             w=topology, delay=self.delay)
         net.add_connection(conn, 'neurons', 'neurons')
 
-    def connect_nest(self, neurons):
+    def connect_nest(self, neurons, model_name):
         M = len(neurons)
         for q in (self.q, -self.q):
-            weight = psp_corrected_weight(neurons[0], q)
+            weight = psp_corrected_weight(neurons[0], q, model_name)
             nest.Connect(neurons, neurons,
                          dict(rule='fixed_indegree',
                               indegree=self.N//2),
@@ -643,13 +643,13 @@ class BernoulliAllToAllConnectivity(Connectivity):
         self.p = p
         self.q = q
 
-    def connect_nest(self, neurons):
+    def connect_nest(self, neurons, model_name=None):
         M = len(neurons)
         for q in (self.q, -self.q):
+            w = psp_corrected_weight(neurons[0], q, model_name)
             nest.Connect(neurons, neurons, 'all_to_all',
                          dict(synapse_model='bernoulli_synapse',
-                              weight=psp_corrected_weight(neurons[0], q),
-                              p_transmit=self.p/2))
+                              weight=w, p_transmit=self.p/2))
 
     def connect_brian2(self, grp):
         # Suppress code generation errors because there's no other way to
