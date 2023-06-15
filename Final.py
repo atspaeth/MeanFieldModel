@@ -224,8 +224,11 @@ dt = 0.1
 q = 5.0
 Rb = 0.1e3
 rs = np.linspace(0, 50, num=1000)
+model = LIF
+backend = 'NEST'
 
-R, rates = firing_rates(LIF, q, dt=dt, T=1e5, M=100, sigma_max=10.0)
+R, rates = firing_rates(model, q, dt=dt, T=1e5, M=100, sigma_max=10.0,
+                        backend=backend.lower())
 p = optimize.curve_fit(softplus_ref, R, rates, method='trf')[0]
 
 lses = [(0, (3,1)), (3, (6,1)), (0, (1,0)),
@@ -313,7 +316,7 @@ def bifurcate_bistability(lower, upper, rtol=1e-3):
     return (upper + lower) / 2
 
 
-N_star_lower = bifurcate_bistability(*Ns[-2:])
+N_star_lower = bifurcate_bistability(Ns[1], Ns[2])
 print('Bifurcation to bistability at N =', N_star_lower)
 print('Lower bifurcation has 0 Hz stable, saddle node at FR =',
       find_fps(
