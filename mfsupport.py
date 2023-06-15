@@ -59,23 +59,22 @@ def _softplus(arg):
     Just the freaky nonlinear part of softplus, implementing
     a large-argument correction.
     '''
-    arg = np.asarray(arg)
-    if len(arg.shape) > 0:
-        out = arg * 1.0
-        nonlinear = arg < 20
-        out[nonlinear] = np.log1p(np.exp(arg[nonlinear]))
-        return out
+    ret = np.array(arg, float)
+    if len(ret.shape) > 0:
+        nonlinear = ret < 20
+        ret[nonlinear] = np.log1p(np.exp(ret[nonlinear]))
+        return ret
     else:
         return _softplus([arg])[0]
 
 
 def _softplus_inv(ret):
     'Inverse of _softplus()'
-    ret = np.asarray(ret)
-    if len(ret.shape) > 0:
-        arg = ret * 1.0
-        nonlinear = ret < 20
-        arg[nonlinear] = np.log(np.expm1(ret[nonlinear]))
+    arg = np.array(ret, float)
+    if len(arg.shape) > 0:
+        nonlinear = (0 < arg) & (arg < 20)
+        arg[nonlinear] = np.log(np.expm1(arg[nonlinear]))
+        arg[arg <= 0] = np.nan
         return arg
     else:
         return _softplus_inv([ret])[0]
