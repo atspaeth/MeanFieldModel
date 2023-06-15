@@ -10,6 +10,8 @@ from tqdm import tqdm
 from contextlib import contextmanager
 from joblib import Memory
 
+NEST_NUM_THREADS = os.environ.get('NEST_NUM_THREADS', 12)
+
 os.environ['PYNEST_QUIET'] = '1'
 memory = Memory(location='.cache', verbose=0)
 
@@ -210,7 +212,7 @@ def find_fps(r_top, F, Finv, atol=0.1):
 
 def reset_nest(dt, seed):
     nest.ResetKernel()
-    nest.local_num_threads = 8
+    nest.local_num_threads = NEST_NUM_THREADS
     nest.resolution = dt
     nest.rng_seed = seed
 
