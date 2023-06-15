@@ -1,0 +1,38 @@
+neuron izhikevich_psc_exp:
+  state:
+    v mV = -65 mV    # Membrane potential in mV
+    u real = b*v    # Membrane potential recovery variable
+
+  equations:
+    kernel g_ex = exp(-t / tau_syn_ex)
+    kernel g_in = exp(-t / tau_syn_ex)
+    inline dvdt mV/ms = (.04 * v * v / mV + 5 * v + (140 - u) * mV) / ms
+    inline I_syn pA = convolve(g_ex, spikes_ex) + convolve(g_in, spikes_in)
+    v' = dvdt + (I_e + I_stim + I_syn) / pF
+    u' = a * (b * v - u * mV) / (mV * ms)
+
+  parameters:
+    a real = .02    # describes time scale of recovery variable
+    b real = .2    # sensitivity of recovery variable
+    c mV = -65 mV    # after-spike reset value of v
+    d real = 8.    # after-spike reset value of u
+    I_e pA = 0.0 pA # external input current
+    tau_syn_ex ms = 1.0 ms # excitatory synaptic time constant
+    tau_syn_in ms = 10.0 ms # inhibitory synaptic time constant
+
+  input:
+    spikes_ex pA <- excitatory spike
+    spikes_in pA <- inhibitory spike
+    I_stim pA <- continuous
+
+  output:
+    spike
+
+  update:
+    integrate_odes()
+
+    # threshold crossing
+    if v >= 30mV:
+      v = c
+      u += d
+      emit_spike()

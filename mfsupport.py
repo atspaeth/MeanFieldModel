@@ -579,9 +579,9 @@ def psp_corrected_weight(neuron, q, model_name=None):
         case [_, 'psc', 'delta']:
             return q
         case [_, 'psc', 'exp']:
-            return q/tau * neuron.C_m
+            return q/tau * neuron.get('C_m', 1.0)
         case [_, 'psc', 'alpha']:
-            return q/tau/np.e * neuron.C_m
+            return q/tau/np.e * neuron.get('C_m', 1.0)
     raise NotImplementedError(f'Model {model_name} not supported.')
 
 
