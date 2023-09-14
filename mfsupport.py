@@ -1,7 +1,5 @@
 import os
 import functools
-import itertools
-import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 import braingeneers.analysis as ba
@@ -9,11 +7,13 @@ from scipy import optimize, special
 from tqdm import tqdm
 from contextlib import contextmanager
 from joblib import Memory
+import joblib_awswrangler
+from braingeneers import set_default_endpoint
 
-NEST_NUM_THREADS = os.environ.get('NEST_NUM_THREADS', 12)
-
-os.environ['PYNEST_QUIET'] = '1'
-memory = Memory(location='.cache', verbose=0)
+NEST_NUM_THREADS = os.environ.get('NEST_NUM_THREADS', 1)
+set_default_endpoint()
+joblib_awswrangler.install()
+memory = Memory(location=f's3://braingeneersdev/{os.environ["S3_USER"]}/cache', backend='s3', verbose=0)
 
 def lazy_package(full_name):
     if callable(full_name):
@@ -325,9 +325,10 @@ def sim_neurons_nest(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
                 nest.Run(step)
 
     # Create SpikeData and trim off the warmup time.
-    return ba.SpikeData(rec, neurons, length=T+warmup_time,
-                        metadata=rec.events if recordables else {}
-                        ).subtime(warmup_time, ...)
+    return ba.SpikeData.from_nest(
+        rec, neurons, length=T + warmup_time,
+        metadata=rec.events if recordables else {}
+    ).subtime(warmup_time, ...)
 
 
 def run_net_with_rates(net, R, T, Npre):
@@ -618,7 +619,6 @@ class RandomConnectivity(Connectivity):
         net.add_connection(conn, 'neurons', 'neurons')
 
     def connect_nest(self, neurons, model_name):
-        M = len(neurons)
         for q in (self.q, -self.q):
             weight = psp_corrected_weight(neurons[0], q, model_name)
             nest.Connect(neurons, neurons,
@@ -645,7 +645,6 @@ class BernoulliAllToAllConnectivity(Connectivity):
         self.q = q
 
     def connect_nest(self, neurons, model_name=None):
-        M = len(neurons)
         for q in (self.q, -self.q):
             w = psp_corrected_weight(neurons[0], q, model_name)
             nest.Connect(neurons, neurons, 'all_to_all',

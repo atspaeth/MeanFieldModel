@@ -3,19 +3,15 @@
 # This script generates all the figures from our new manuscript
 # ``Model-agnostic neural mean-field models with the Refractory SoftPlus
 # transfer function''
-import functools
-import itertools
-import collections
 import numpy as np
-from scipy import stats, signal, optimize, special, sparse
+from scipy import optimize
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import pickle
 
-import mfsupport
-from mfsupport import softplus_ref, rs79, softplus, zerlaut_erf, \
-    parametrized_F_Finv, find_fps, firing_rates, softplus_ref_q_dep, \
-    RandomConnectivity, BernoulliAllToAllConnectivity, figure, LIF
+from mfsupport import softplus_ref, rs79, parametrized_F_Finv, \
+    find_fps, firing_rates, softplus_ref_q_dep, RandomConnectivity, \
+    BernoulliAllToAllConnectivity, figure, LIF
 # mfsupport.figdir('~/Dropbox/Apps/Overleaf/MeanField/Figures/')
 
 plt.ion()
@@ -106,7 +102,7 @@ with figure('02 Parameter Generalization', figsize=[5.1, 3.0],
         err.append(ax[1])
 
     for i, model in enumerate(model_names):
-        R, rates = firing_rates(T=T, q=q, dt=dt, model=model,
+        R, rates = firing_rates(T=1e2, q=q, dt=dt, model=model,
                                 sigma_max=sigma_max)
         ratehats = fitted_curve(softplus_ref, R, rates)
         base_err = norm_err(rates, ratehats)
