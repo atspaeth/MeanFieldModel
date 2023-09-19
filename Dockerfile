@@ -13,9 +13,6 @@ RUN pip install nestml==5.3.*
 ADD "https://api.github.com/repos/braingeneers/braingeneerspy/commits?per_page=1" /tmp/latest_braingeneers_commit
 RUN pip install "git+https://github.com/braingeneers/braingeneerspy#egg=braingeneerspy[analysis,iot]"
 
-# Install joblib and my plugin for caching to S3.
-RUN pip install -e "git+https://github.com/atspaeth/joblib_awswrangler#egg=joblib_awswrangler"
-
 # Copy over the source files.
 WORKDIR /root
 COPY models models

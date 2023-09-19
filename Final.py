@@ -3,16 +3,14 @@
 # This script generates all the figures from our new manuscript
 # ``Model-agnostic neural mean-field models with the Refractory SoftPlus
 # transfer function''
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy import optimize
-import matplotlib.pyplot as plt
 from tqdm import tqdm
-import pickle
 
 from mfsupport import softplus_ref, rs79, parametrized_F_Finv, \
     find_fps, firing_rates, softplus_ref_q_dep, RandomConnectivity, \
-    BernoulliAllToAllConnectivity, figure, LIF
-# mfsupport.figdir('~/Dropbox/Apps/Overleaf/MeanField/Figures/')
+    BernoulliAllToAllConnectivity, figure, LIF, memoize
 
 plt.ion()
 plt.rcParams['figure.dpi'] = 300
@@ -63,15 +61,10 @@ def sample_params(model):
                         tau_syn_ex=np.random.exponential(1),
                         tau_syn_in=np.random.exponential(1))
 
-# Explicitly cache the actual error values in a single pickle file, because
-# we can't cache the simulation runs themselves due to their random params.
-try:
-    with open('fig2_errors.pickle', 'rb') as f:
-        errses = pickle.load(f)
-except FileNotFoundError:
-    errses = {model: [] for model in model_names}
-
-try:
+# Explicitly cache the error values. We can't cache the simulation runs
+# themselves due to their random params.
+@memoize
+def fig2_errors():
     for model in model_names:
         to_run = N_samples - len(errses[model])
         if not to_run:
@@ -84,9 +77,9 @@ try:
             ratehats = fitted_curve(softplus_ref, R, rates)
             errses[model].append(
                 norm_err(rates, ratehats))
-finally:
-    with open('fig2_errors.pickle', 'wb') as f:
-        pickle.dump(errses, f)
+    return errses
+
+errses = fig2_errors()
 
 with figure('02 Parameter Generalization', figsize=[5.1, 3.0],
             save_args=dict(bbox_inches='tight')) as f:
@@ -148,12 +141,6 @@ M = 100
 Mmax = 10000
 T = 1e5
 Tmax = 1e7
-
-def subfit_err(model, Msub):
-    idces = np.linspace(0, Mmax-1, num=Msub, dtype=int)
-    rsub = sds[model].subset(idces).rates('Hz')
-    mu = optimize.curve_fit(softplus_ref, R[idces], rsub, method='trf')[0]
-    return norm_err(sds[model].rates('Hz'), softplus_ref(R, *mu))
 
 Msubs = np.geomspace(5, Mmax/2, num=100, dtype=int)
 residuals_M = {m: [] for m in model_names}
@@ -515,5 +502,6 @@ with figure('07 FR and Error Landscapes', figsize=(6,2.5),
     err.set_zlabel('Rate Error (\%)')
     err.set_ylabel('$r$ (Hz)')
     err.set_xlabel('$q$ (mV)')
-    err.set_zticklabels([f'{z:0.0f}\%' for z in err.get_zticks()])
+    err.zaxis.set_major_formatter(
+        plt.matplotlib.ticker.PercentFormatter(decimals=0))
     err.set_xticks([-1, 0, 1], ['0.1', '1', '10'])

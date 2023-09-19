@@ -6,14 +6,9 @@ import braingeneers.analysis as ba
 from scipy import optimize, special
 from tqdm import tqdm
 from contextlib import contextmanager
-from joblib import Memory
-import joblib_awswrangler
-from braingeneers import set_default_endpoint
+from braingeneers.utils.memoize_s3 import memoize
 
 NEST_NUM_THREADS = int(os.environ.get("NEST_NUM_THREADS", "12"))
-set_default_endpoint()
-joblib_awswrangler.install()
-memory = Memory(location=f's3://braingeneersdev/{os.environ["S3_USER"]}/cache', backend='s3', verbose=0)
 
 def lazy_package(full_name):
     if callable(full_name):
@@ -260,7 +255,7 @@ def sim_step_lengths(pbar, total_time, dt):
         pbar.update(residue)
 
 
-@memory.cache(ignore=['progress_interval'])
+@memoize(ignore=['progress_interval'])
 def sim_neurons_nest(model, q, R, dt, T, M=None, I_ext=None, model_params=None,
                 warmup_time=0.0, warmup_rate=None, warmup_steps=10,
                 connectivity=None, seed=42, recordables=None,
@@ -345,7 +340,7 @@ def run_net_with_rates(net, R, T, Npre):
     net.run(inputs={'source': input_data}, time=T)
 
 
-@memory.cache(ignore=['device', 'progress_interval'])
+@memoize(ignore=['device', 'progress_interval'])
 def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
                          model_params={}, connectivity=None,
                          warmup_time=0.0, warmup_steps=10,
@@ -424,7 +419,7 @@ def sim_neurons_bindsnet(model, q, R, dt, T, M=None, seed=42,
     return sd
 
 
-@memory.cache(ignore=['progress_interval'])
+@memoize(ignore=['progress_interval'])
 def sim_neurons_brian2(model, q, R, dt, T, M=None, connectivity=None,
                        warmup_time=0.0, warmup_steps=10, model_params={},
                        progress_interval=None, seed=42):
