@@ -8,9 +8,14 @@ import os
 import numpy as np
 from braingeneers.iot.messaging import MessageBroker
 
-from mfsupport import (LIF, SIM_BACKENDS, BernoulliAllToAllConnectivity,
-                       RandomConnectivity)
+from mfsupport import (
+    LIF,
+    SIM_BACKENDS,
+    BernoulliAllToAllConnectivity,
+    RandomConnectivity,
+)
 
+added = 0
 model_names = {
     "iaf_psc_delta": "Leaky Integrate-and-Fire",
     "izhikevich": "Izhikevich",
@@ -56,7 +61,10 @@ def _firing_rates_needs_run(
 
 
 def firing_rates(**kwargs):
+    global added
     if _firing_rates_needs_run(**kwargs):
+        added += 1
+        print("Queueing", kwargs)
         queue.put(dict(retries_allowed=3, params=kwargs))
 
 
@@ -89,7 +97,9 @@ def fig4():
     q = 5.0
     model = LIF
     backend = "NEST"
-    firing_rates(model=model, q=q, dt=dt, T=1e5, M=100, sigma_max=10.0, backend=backend.lower())
+    firing_rates(
+        model=model, q=q, dt=dt, T=1e5, M=100, sigma_max=10.0, backend=backend.lower()
+    )
 
 
 def fig5():
@@ -178,7 +188,6 @@ def fig7():
 if __name__ == "__main__":
     mb = MessageBroker()
     qname = f"{os.environ['S3_USER']}/sim-job-queue"
-    mb.delete_queue(qname)
     queue = mb.get_queue(qname)
 
     fig2()
@@ -187,3 +196,5 @@ if __name__ == "__main__":
     fig5()
     fig6()
     fig7()
+
+    print("Added", added, "jobs to queue")
