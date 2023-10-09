@@ -63,6 +63,7 @@ def sample_params(model):
 
 # Explicitly cache the error values. We can't cache the simulation runs
 # themselves due to their random params.
+# TODO this doesn't actually work because it's not in a module.
 @memoize
 def fig2_errors():
     for model in model_names:

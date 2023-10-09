@@ -17,3 +17,25 @@ pull:
 push: build
     docker push $container
     @echo Current commit uploaded to $container
+
+launch script memory_gi="4" n="1": push
+    #! /usr/bin/bash
+    if [ -z "$S3_USER" ]; then
+        echo \$S3_USER must be defined. >&2
+        exit 1
+    fi
+    export SCRIPT_NAME=$(basename "{{script}}" .py)
+    export CLEAN_NAME=$(echo $SCRIPT_NAME | tr _ -)
+    if [ ! -f "$SCRIPT_NAME.py" ]; then
+        echo "Script {{script}} not found in CURRENT directory." >&2
+        exit 1
+    fi
+    export CONTAINER_IMAGE={{container}}
+    export NRP_MEMORY_GI={{memory_gi}}
+    export NRP_MEMORY_LIMIT_GI=$(( {{memory_gi}} * 14 / 10 ))
+    echo "Launching {{n}} jobs with {{memory_gi}}GiB RAM"
+    for i in $(seq "{{n}}"); do
+        stamp=$(printf '%(%m%d%H%M%S)T\n' -1)
+        export JOB_NAME=$S3_USER--$CLEAN_NAME--$stamp$i
+        envsubst < job.yml | kubectl apply -f -
+    done
