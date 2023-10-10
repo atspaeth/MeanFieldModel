@@ -8,12 +8,8 @@ import os
 import numpy as np
 from braingeneers.iot.messaging import MessageBroker
 
-from mfsupport import (
-    LIF,
-    SIM_BACKENDS,
-    BernoulliAllToAllConnectivity,
-    RandomConnectivity,
-)
+from mfsupport import (LIF, SIM_BACKENDS, BernoulliAllToAllConnectivity,
+                       RandomConnectivity)
 
 added = 0
 model_names = {
@@ -29,7 +25,6 @@ def _firing_rates_needs_run(
     M=500,
     sigma_max=None,
     R_max=None,
-    cache=True,
     return_times=False,
     uniform_input=False,
     seed=42,
@@ -53,19 +48,17 @@ def _firing_rates_needs_run(
         model_params = model_params or model.params
         model = model.model
 
-    sim = SIM_BACKENDS[backend] if cache else SIM_BACKENDS[backend].func
-    params = kwargs | dict(
-        model=model, q=q, R=R, M=M, seed=seed, model_params=model_params
+    return not SIM_BACKENDS[backend].check_call_in_cache(
+        model=model, q=q, R=R, M=M, seed=seed, model_params=model_params, **kwargs
     )
-    return not sim.check_call_in_cache(**params)
 
 
-def firing_rates(**kwargs):
+def firing_rates(**params):
     global added
-    if _firing_rates_needs_run(**kwargs):
+    if _firing_rates_needs_run(**params):
         added += 1
-        print("Queueing", kwargs)
-        queue.put(dict(retries_allowed=3, params=kwargs))
+        print("Queueing", params)
+        put_params(params)
 
 
 def fig2():
@@ -75,6 +68,40 @@ def fig2():
     sigma_max = 10.0
     for model in model_names:
         firing_rates(T=1e2, q=q, dt=dt, model=model, sigma_max=sigma_max)
+
+    T = 1e5
+    q = 1.0
+    dt = 0.1
+    sigma_max = 10.0
+    N_samples = 100
+
+    rng = np.random.default_rng(42)
+    sample_params = dict(
+        iaf_psc_delta=lambda: dict(t_ref=rng.exponential(2), C_m=rng.normal(250, 50)),
+        izhikevich=lambda: dict(
+            a=rng.uniform(0.02, 0.1),
+            b=rng.uniform(0.2, 0.25),
+            c=rng.uniform(-65, -50),
+            d=rng.uniform(2, 8),
+        ),
+        hh_psc_alpha=lambda: dict(
+            C_m=rng.normal(100, 10),
+            t_ref=rng.exponential(2),
+            tau_syn_ex=rng.exponential(1),
+            tau_syn_in=rng.exponential(1),
+        ),
+    )
+
+    for model in sample_params:
+        for _ in range(N_samples):
+            firing_rates(
+                T=T,
+                q=q,
+                dt=dt,
+                model=model,
+                sigma_max=sigma_max,
+                model_params=sample_params[model](),
+            )
 
 
 def fig3():
@@ -181,7 +208,6 @@ def fig7():
             model=model,
             dt=dt,
             T=Tmax,
-            progress_interval=None,
         )
 
 
@@ -189,6 +215,14 @@ if __name__ == "__main__":
     mb = MessageBroker()
     qname = f"{os.environ['S3_USER']}/sim-job-queue"
     queue = mb.get_queue(qname)
+
+    def put_params(params):
+        queue.put(dict(retries_allowed=3, params=params))
+
+    import sys
+    if '--dryrun' in sys.argv or '-n' in sys.argv:
+        print("Dry run, not actually queueing anything")
+        put_params = lambda params: None  # noqa: F811
 
     fig2()
     fig3()

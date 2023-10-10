@@ -8,22 +8,10 @@ import numpy as np
 from scipy import optimize
 from tqdm import tqdm
 
-from mfsupport import (
-    LIF,
-    BernoulliAllToAllConnectivity,
-    RandomConnectivity,
-    fig2_errors,
-    figure,
-    find_fps,
-    firing_rates,
-    fitted_curve,
-    norm_err,
-    parametrized_F_Finv,
-    rs79,
-    softplus_ref,
-    softplus_ref_q_dep,
-)
-
+from mfsupport import (LIF, BernoulliAllToAllConnectivity, RandomConnectivity,
+                       fig2_errors, figure, find_fps, firing_rates,
+                       fitted_curve, norm_err, parametrized_F_Finv, rs79,
+                       softplus_ref, softplus_ref_q_dep)
 
 plt.ion()
 plt.rcParams["figure.dpi"] = 300

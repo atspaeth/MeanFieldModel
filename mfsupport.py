@@ -508,7 +508,7 @@ def sim_neurons_brian2(
     # All constructed objects must be explicitly named and in scope so Brian
     # can extract them for the run() call.
     if connectivity is not None:
-        syn_recurrent = connectivity.connect_brian2(neurons)
+        syn_recurrent = connectivity.connect_brian2(neurons)  # noqa: F841
 
     Npre = 150
     if len(R) == 1:
@@ -781,23 +781,27 @@ def norm_err(true, est):
 @memoize
 def fig2_errors(T, q, dt, sigma_max, N_samples):
     """
-    Generate N_samples random parameter sets for each of the three models
+    Generate N_samples random parameter sets for each of the three models,
+    using a random seed to make sure the same parameters will always be
+    requested so the memoization is useful. The function as a whole is *also*
+    memoized because it would take so long to load all of these runs.
     """
+    rng = np.random.default_rng(42)
     sample_params = dict(
         iaf_psc_delta=lambda: dict(
-            t_ref=np.random.exponential(2), C_m=np.random.normal(250, 50)
+            t_ref=rng.exponential(2), C_m=rng.normal(250, 50)
         ),
         izhikevich=lambda: dict(
-            a=np.random.uniform(0.02, 0.1),
-            b=np.random.uniform(0.2, 0.25),
-            c=np.random.uniform(-65, -50),
-            d=np.random.uniform(2, 8),
+            a=rng.uniform(0.02, 0.1),
+            b=rng.uniform(0.2, 0.25),
+            c=rng.uniform(-65, -50),
+            d=rng.uniform(2, 8),
         ),
         hh_psc_alpha=lambda: dict(
-            C_m=np.random.normal(100, 10),
-            t_ref=np.random.exponential(2),
-            tau_syn_ex=np.random.exponential(1),
-            tau_syn_in=np.random.exponential(1),
+            C_m=rng.normal(100, 10),
+            t_ref=rng.exponential(2),
+            tau_syn_ex=rng.exponential(1),
+            tau_syn_in=rng.exponential(1),
         ),
     )
 
