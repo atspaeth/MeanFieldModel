@@ -62,7 +62,7 @@ with figure(
         err.append(ax[1])
 
     for i, model in enumerate(model_names):
-        R, rates = firing_rates(T=1e2, q=q, dt=dt, model=model, sigma_max=sigma_max)
+        R, rates = firing_rates(T=T, q=q, dt=dt, model=model, sigma_max=sigma_max)
         ratehats = fitted_curve(softplus_ref, R, rates)
         base_err = norm_err(rates, ratehats)
 
@@ -151,13 +151,13 @@ with figure("03 Convergence") as f:
 
     for i, m in enumerate(model_names):
         byM.loglog(
-            Msubs, residuals_M[m], label=model_names[m], linestyle=model_line_styles[i]
+            Msubs, residuals_M[m], label=model_names[m], linestyle=model_line_styles[m]
         )
         byT.loglog(
             Tsubs / 1e3,
             residuals_T[m],
             label=model_names[m],
-            linestyle=model_line_styles[i],
+            linestyle=model_line_styles[m],
         )
 
     byM.set_xlabel("Neurons Considered")

@@ -777,8 +777,8 @@ def norm_err(true, est):
     return np.sqrt(np.mean((true - est) ** 2)) / true.max()
 
 
-@memoize
-def fig2_errors(T, q, dt, sigma_max, N_samples):
+@memoize(ignore=["progress"])
+def fig2_errors(T, q, dt, sigma_max, N_samples, progress=True):
     """
     Generate N_samples random parameter sets for each of the three models,
     using a random seed to make sure the same parameters will always be
@@ -805,21 +805,22 @@ def fig2_errors(T, q, dt, sigma_max, N_samples):
     )
 
     errses = {}
-    for model in sample_params:
-        errses[model] = []
-        for _ in range(N_samples):
-            R, rates = firing_rates(
-                T=T,
-                q=q,
-                dt=dt,
-                model=model,
-                sigma_max=sigma_max,
-                cache=False,
-                model_params=sample_params[model](),
-                progress_interval=None,
-            )
-            ratehats = fitted_curve(softplus_ref, R, rates)
-            errses[model].append(norm_err(rates, ratehats))
+    with tqdm(sample_params, disable=not progress, total=3*N_samples) as pbar:
+        for model in sample_params:
+            errses[model] = []
+            for _ in range(N_samples):
+                R, rates = firing_rates(
+                    T=T,
+                    q=q,
+                    dt=dt,
+                    model=model,
+                    sigma_max=sigma_max,
+                    model_params=sample_params[model](),
+                    progress_interval=None,
+                )
+                ratehats = fitted_curve(softplus_ref, R, rates)
+                errses[model].append(norm_err(rates, ratehats))
+                pbar.update()
     return errses
 
 
