@@ -11,8 +11,6 @@ from braingeneers.utils.memoize_s3 import memoize
 from scipy import optimize, special
 from tqdm import tqdm
 
-NEST_NUM_THREADS = int(os.environ.get("NEST_NUM_THREADS", "12"))
-
 
 def lazy_package(full_name):
     if callable(full_name):
@@ -222,7 +220,8 @@ def find_fps(r_top, F, Finv, atol=0.1):
 
 def reset_nest(dt, seed):
     nest.ResetKernel()
-    nest.local_num_threads = NEST_NUM_THREADS
+    if n_threads := os.environ.get("NEST_NUM_THREADS"):
+        nest.local_num_threads = int(n_threads)
     nest.resolution = dt
     nest.rng_seed = seed
 

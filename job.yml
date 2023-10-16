@@ -18,17 +18,19 @@ spec:
             value: $S3_USER
           - name: ENDPOINT
             value: https://s3.braingeneers.gi.ucsc.edu
+          - name: NEST_NUM_THREADS
+            value: "${NRP_NUM_THREADS}"
         imagePullPolicy: Always
         volumeMounts:
           - mountPath: /root/.aws
             name: prp-s3-credentials
         resources:
           requests:
-            cpu: 1
+            cpu: "${NRP_NUM_THREADS}"
             memory: "${NRP_MEMORY_GI}Gi"
             nvidia.com/gpu: 0
           limits:
-            cpu: 1
+            cpu: "${NRP_NUM_THREADS}"
             memory: "${NRP_MEMORY_LIMIT_GI}Gi"
             nvidia.com/gpu: 0
         command: ["python", "${SCRIPT_NAME}.py"]

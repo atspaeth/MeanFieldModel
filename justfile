@@ -18,7 +18,7 @@ push: build
     docker push $container
     @echo Current commit uploaded to $container
 
-launch script memory_gi="4" n="1": push
+launch script memory_gi="4" n="1" threads="1": push
     #! /usr/bin/bash
     if [ -z "$S3_USER" ]; then
         echo \$S3_USER must be defined. >&2
@@ -30,9 +30,10 @@ launch script memory_gi="4" n="1": push
         echo "Script {{script}} not found in CURRENT directory." >&2
         exit 1
     fi
-    export CONTAINER_IMAGE={{container}}
-    export NRP_MEMORY_GI={{memory_gi}}
-    export NRP_MEMORY_LIMIT_GI=$(( {{memory_gi}} * 14 / 10 ))
+    export CONTAINER_IMAGE="{{container}}"
+    export NRP_MEMORY_GI="{{memory_gi}}"
+    export NRP_MEMORY_LIMIT_GI=$(( "{{memory_gi}}" * 15 / 10 ))
+    export NRP_NUM_THREADS="{{threads}}"
     echo "Launching {{n}} jobs with {{memory_gi}}GiB RAM"
     for i in $(seq "{{n}}"); do
         stamp=$(printf '%(%m%d%H%M%S)T\n' -1)
