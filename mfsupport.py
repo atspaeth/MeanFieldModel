@@ -641,13 +641,30 @@ class Connectivity:
         name = self.__class__.__name__
         raise NotImplementedError(f"{name} does not support BindsNET.")
 
-    def connect_nest(self, neurons, model_name):
+    def connect_nest(self, neurons, model_name=None):
         name = self.__class__.__name__
         raise NotImplementedError(f"{name} does not support NEST.")
 
     def connect_brian2(self, neurons):
         name = self.__class__.__name__
         raise NotImplementedError(f"{name} does not support Brian2.")
+
+
+class CombinedConnectivity(Connectivity):
+    def __init__(self, *connectivities):
+        self.connectivities = connectivities
+
+    def connect_bindsnet(self, neurons):
+        for conn in self.connectivities:
+            conn.connect_bindsnet(neurons)
+
+    def connect_nest(self, neurons, model_name=None):
+        for conn in self.connectivities:
+            conn.connect_nest(neurons, model_name)
+
+    def connect_brian2(self, neurons):
+        for conn in self.connectivities:
+            conn.connect_brian2(neurons)
 
 
 class RandomConnectivity(Connectivity):
@@ -787,9 +804,7 @@ def fig2_errors(T, q, dt, sigma_max, N_samples, progress=True):
     """
     rng = np.random.default_rng(42)
     sample_params = dict(
-        iaf_psc_delta=lambda: dict(
-            t_ref=rng.exponential(2), C_m=rng.normal(250, 50)
-        ),
+        iaf_psc_delta=lambda: dict(t_ref=rng.exponential(2), C_m=rng.normal(250, 50)),
         izhikevich=lambda: dict(
             a=rng.uniform(0.02, 0.1),
             b=rng.uniform(0.2, 0.25),
@@ -805,7 +820,7 @@ def fig2_errors(T, q, dt, sigma_max, N_samples, progress=True):
     )
 
     errses = {}
-    with tqdm(sample_params, disable=not progress, total=3*N_samples) as pbar:
+    with tqdm(sample_params, disable=not progress, total=3 * N_samples) as pbar:
         for model in sample_params:
             errses[model] = []
             for _ in range(N_samples):
