@@ -68,7 +68,7 @@ M = 10000
 T = 2e3
 connectivity = CombinedConnectivity(
     input := SinusoidalInput(10e3, 10e3, 1.0, q),
-    RandomConnectivity(N, q, delay=5.0),
+    RandomConnectivity(N, q),
 )
 
 _, sd = firing_rates(
@@ -83,6 +83,7 @@ _, sd = firing_rates(
     uniform_input=True,
     cache=False,
     backend=backend,
+    progress_interval=10.0,
 )
 
 t, r = sd.population_firing_rate(bin_size=2.0, average=True)
@@ -96,7 +97,7 @@ for r_input in r_inputs:
     r_pred.append(last_r)
 r_pred = np.array(r_pred)
 
-input_percentage = np.mean(1 / (1 + r_inputs/r_pred/N))
+input_percentage = np.mean(1 / (1 + r_inputs / r_pred / N))
 print(f"{input_percentage:.2%} of the input was recurrent.")
 
 with figure("Sinusoidal example"):
@@ -105,3 +106,25 @@ with figure("Sinusoidal example"):
     plt.xlabel("Time (ms)")
     plt.ylabel("Firing rate (Hz)")
     plt.legend()
+
+
+# %%
+# ISI distribution.
+# The units must not be very Poisson, or the approximation would work!
+
+isis = sd.interspike_intervals()
+mean = np.array([np.mean(isi) for isi in isis])
+std = np.array([np.std(isi) for isi in isis])
+
+with figure("ISI distribution", save_exts=[]) as f:
+    ax = f.gca()
+    ax.set_aspect("equal")
+    ax.scatter(mean, std)
+    xa, xb = ax.get_xlim()
+    ya, yb = ax.get_ylim()
+    ab = min(xa, ya), max(xb, yb)
+    ax.plot(ab, ab, "k:")
+    ax.set_xlim(ab)
+    ax.set_ylim(ab)
+    ax.set_xlabel("Mean ISI (ms)")
+    ax.set_ylabel("Std. dev. ISI (ms)")
