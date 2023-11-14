@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from mfsupport import (LIF, CombinedConnectivity, Connectivity,
                        RandomConnectivity, figure, firing_rates,
-                       parametrized_F_Finv, psp_corrected_weight, softplus_ref)
+                       psp_corrected_weight, softplus_ref)
 
 plt.ion()
 if "elsevier" in plt.style.available:
@@ -64,44 +64,38 @@ p = optimize.curve_fit(softplus_ref, R, rates, method="trf")[0]
 # %%
 # Simulate the model for each value of N.
 
-def sim_sinusoid(N, M=10000, T=2e3):
-    bin_size_ms = 5.0
-    warmup_time = 10.0
 
+def sim_sinusoid(N, M=10000, T=2e3, bin_size_ms=10.0, warmup_time=250.0):
     t = np.arange(0, T, bin_size_ms)
-    r = (
-        firing_rates(
-            model=model,
-            q=q,
-            M=M,
-            T=T,
-            dt=dt,
-            connectivity=CombinedConnectivity(
-                input := SinusoidalInput(10e3, 10e3, 1.0, q),
-                RandomConnectivity(N, q),
-            ),
-            return_times=True,
-            R_max=0.0,
-            uniform_input=True,
-            cache=False,
-            backend=backend,
-            progress_interval=None,
-            warmup_time=warmup_time,
-        )[1].binned(bin_size_ms)
-        / M
-        / bin_size_ms
-        * 1e3
-    )
+    r = firing_rates(
+        model=model,
+        q=q,
+        M=M,
+        T=T,
+        dt=dt,
+        connectivity=CombinedConnectivity(
+            input := SinusoidalInput(10e3, 3e3, 1.0, q),
+            RandomConnectivity(N, q, delay=nest.random.uniform(1.0, 10.0)),
+        ),
+        return_times=True,
+        R_max=0.0,
+        uniform_input=True,
+        cache=False,
+        backend=backend,
+        progress_interval=None,
+        warmup_time=warmup_time,
+    )[1].binned(bin_size_ms) / (M * bin_size_ms / 1e3)
 
     last_r, r_pred = 0.0, []
     r_inputs = input.firing_rate(t + warmup_time)
     for r_input in r_inputs:
-        F, _ = parametrized_F_Finv(p, r_input, N, q)
-        last_r = optimize.fixed_point(F, last_r, method="iteration", maxiter=5000)
+        # This discrete-time model is what the CT model reduces to when
+        # integrated using forward Euler with timestep equal to its time
+        # constant, so just use this for now.
+        last_r = softplus_ref(r_input + N * last_r, *p)
         r_pred.append(last_r)
-    r_pred = np.array(r_pred)
 
-    return t, r_inputs, r_pred, r
+    return t, r_inputs, np.array(r_pred), r
 
 
 Ns = np.logspace(1, 3, 101).astype(int)
@@ -112,7 +106,7 @@ results = [sim_sinusoid(N) for N in tqdm(Ns)]
 # Plot the results.
 
 with figure("Sinusoidal Example"):
-    t, r_inputs, r_pred, r = results[50]
+    t, r_inputs, r_pred, r = results[len(results) // 2]
     plt.plot(t, r, label="Actual")
     plt.plot(t, r_pred, label="Predicted")
     plt.xlabel("Time (ms)")
