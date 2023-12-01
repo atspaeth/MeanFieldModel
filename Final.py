@@ -5,13 +5,13 @@
 # transfer function''
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy import optimize
+from scipy import optimize, special
 from tqdm import tqdm
 
 from mfsupport import (LIF, BernoulliAllToAllConnectivity, RandomConnectivity,
-                       fig2_errors, figure, find_fps, firing_rates,
-                       fitted_curve, norm_err, parametrized_F_Finv, rs79,
-                       softplus_ref, softplus_ref_q_dep)
+                       figure, find_fps, firing_rates, fitted_curve,
+                       generalization_errors, norm_err, parametrized_F_Finv,
+                       relu_ref, rs79, softplus_ref, softplus_ref_q_dep)
 
 plt.ion()
 plt.rcParams["figure.dpi"] = 300
@@ -34,6 +34,48 @@ figure_width, figure_height = plt.rcParams["figure.figsize"]
 # %%
 # Figure 2
 # ========
+# The behavior of several different candidate transfer functions in
+# comparison to a single set of refractory data with default parameters.
+
+T = 1e5
+q = 1.0
+dt = 0.001
+R_full, rates_full = firing_rates(T=T, q=q, dt=dt, model=LIF, sigma_max=10.0)
+
+sub = R_full <= R_full[-1] / 2
+R, rates = R_full[sub] / 1e3, rates_full[sub]
+
+
+tfs = {
+    "SoftPlus": softplus_ref,
+    "Sigmoid": lambda R, a, b, R0: a / b**2 * special.expit(b**2 * (R - R0)),
+    "ReLU": relu_ref,
+}
+
+x = R_full / 1e3
+with figure("Refractory Softplus Extrapolation") as f:
+    (ax1, ax2) = f.subplots(2, 1)
+    true = rs79(R_full, q, 10, 15, 2)
+    ax1.plot(x, rates_full, ".", ms=1)
+    ax2.plot(x, rates_full - true, ".", ms=1)
+    ax1.plot(x, true, "k:", label="Analytical")
+
+    for name, tf in tfs.items():
+        mu = optimize.curve_fit(tf, R, rates, method="lm")[0]
+        rateshat = tf(x, *mu)
+        ax1.plot(x, rateshat, label=name)
+        ax2.plot(x, rateshat - true, label=name)
+
+    ax1.set_ylabel("Firing Rate (Hz)")
+    ax1.set_xticks([])
+    ax1.legend(ncol=2)
+    ax2.set_xlabel("Total Presynaptic Rate $R$ (kHz)")
+    ax2.set_ylabel("Error (Hz)")
+
+
+# %%
+# Figure 3
+# ========
 # This figure demonstrates that Refractory SoftPlus can be fitted to
 # a variety of different neuron configurations.
 
@@ -43,10 +85,12 @@ dt = 0.1
 sigma_max = 10.0
 N_samples = 100
 
-errses = fig2_errors(T=T, q=q, dt=dt, sigma_max=sigma_max, N_samples=N_samples)
+errses = generalization_errors(
+    softplus_ref, T=T, q=q, dt=dt, sigma_max=sigma_max, N_samples=N_samples
+)
 
 with figure(
-    "02 Parameter Generalization",
+    "03 Parameter Generalization",
     figsize=[5.1, 3.0],
     save_args=dict(bbox_inches="tight"),
 ) as f:
@@ -101,7 +145,7 @@ with figure(
     hist.set_xticklabels([f"{100*x:.1f}\%" for x in hist.get_xticks()])
 
 # %%
-# Figure 3
+# Figure 4
 # ========
 # Convergence of the error as the number of neurons included in the fit
 # increases, and as the total simulation time increases.
@@ -146,7 +190,7 @@ with tqdm(total=len(model_names) * len(Tsubs)) as pbar:
             residuals_T[m].append(norm_err(sd.rates("Hz"), rfit))
             pbar.update(1)
 
-with figure("03 Convergence") as f:
+with figure("04 Convergence") as f:
     byM, byT = f.subplots(1, 2)
 
     for i, m in enumerate(model_names):
@@ -174,7 +218,7 @@ with figure("03 Convergence") as f:
 
 
 # %%
-# Figure 4
+# Figure 5
 # ========
 # Three consistency curves for the LIF neuron, demonstrating that the model
 # predicts a saddle-node bifurcation that we're going to be able to observe
@@ -204,7 +248,7 @@ lses = [
 ]
 
 with figure(
-    "04 Consistency Condition", figsize=(2 * figure_height, figure_height)
+    "05 Consistency Condition", figsize=(2 * figure_height, figure_height)
 ) as f:
     axes = f.subplots(1, 2)
 
@@ -314,7 +358,7 @@ print(
 
 
 # %%
-# Figure 5
+# Figure 6
 # ========
 # Simulated vs. theoretical fixed points in two different LIF networks.
 # First is the best-case scenario, demonstrating only a few percent error in
@@ -398,7 +442,7 @@ with tqdm(total=len(N_sim) * len(conditions)) as pbar:
 
 theo_markers = ["k--", "k-", None]
 sim_markers = ["^", "o", "s"]
-with figure(f"05 Sim Fixed Points {backend}") as f:
+with figure(f"06 Sim Fixed Points {backend}") as f:
     ax = f.gca()
     for i, (Rb, q, aa) in enumerate(conditions):
         qlb = f"$q=\qty{{{q}}}{{mV}}$"
@@ -419,7 +463,7 @@ with figure(f"05 Sim Fixed Points {backend}") as f:
 
 
 # %%
-# Figure 6
+# Figure 7
 # ========
 # Compare the RS79 analytical solution to simulated firing rates for
 # a single neuron to demonstrate that it works in the diffusion limit but
@@ -430,7 +474,7 @@ model = LIF
 sigma_max = 10.0
 t_refs = [0.0, 2.0]
 
-with figure("06 LIF Analytical Solutions", save_args=dict(bbox_inches="tight")) as f:
+with figure("07 LIF Analytical Solutions", save_args=dict(bbox_inches="tight")) as f:
     axes = f.subplots(2, 2)
     for t_ref, axr, axe in zip(t_refs, *axes):
         conditions = {
@@ -479,7 +523,7 @@ with figure("06 LIF Analytical Solutions", save_args=dict(bbox_inches="tight")) 
 
 
 # %%
-# Figure 7
+# Figure 8
 # ========
 # Here we simulate theoretical transfer functions for a grid of values of
 # R and q, fit a single transfer function to all of them, and plot both the
@@ -513,7 +557,7 @@ surfargs = dict(color="cyan")
 # that overflows the columns of my paper.
 bb = plt.matplotlib.transforms.Bbox([[0.75, 0], [6, 2.5]])
 with figure(
-    "07 FR and Error Landscapes", figsize=(6, 2.5), save_args=dict(bbox_inches=bb)
+    "08 FR and Error Landscapes", figsize=(6, 2.5), save_args=dict(bbox_inches=bb)
 ) as f:
     fr, err = f.subplots(1, 2, subplot_kw=dict(projection="3d", facecolor="#00000000"))
 

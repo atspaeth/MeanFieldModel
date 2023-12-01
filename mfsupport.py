@@ -133,6 +133,11 @@ def softplus_ref_inv(rs, x0, b, c, t_ref):
     return softplus_inv(_refractory_inv(rs, t_ref), x0, b, c)
 
 
+def relu_ref(R, a, b, R0, t_ref):
+    ret = a / b**2 * np.maximum(0, b**2 * (R - R0))
+    return _refractory(ret, t_ref)
+
+
 def parametrized_F_Finv(μ_softplus, R_background, N, q=None):
     """
     Return the transfer function for a recurrently connected network whose
@@ -795,7 +800,9 @@ def norm_err(true, est):
 
 
 @memoize(ignore=["progress"])
-def fig2_errors(T, q, dt, sigma_max, N_samples, progress=True):
+def generalization_errors(
+    transfer_function, *, T, q, dt, sigma_max, N_samples, progress=True
+):
     """
     Generate N_samples random parameter sets for each of the three models,
     using a random seed to make sure the same parameters will always be
@@ -819,6 +826,7 @@ def fig2_errors(T, q, dt, sigma_max, N_samples, progress=True):
         ),
     )
 
+    # Actually generate all the fit results.
     errses = {}
     with tqdm(sample_params, disable=not progress, total=3 * N_samples) as pbar:
         for model in sample_params:
@@ -833,7 +841,7 @@ def fig2_errors(T, q, dt, sigma_max, N_samples, progress=True):
                     model_params=sample_params[model](),
                     progress_interval=None,
                 )
-                ratehats = fitted_curve(softplus_ref, R, rates)
+                ratehats = fitted_curve(transfer_function, R, rates)
                 errses[model].append(norm_err(rates, ratehats))
                 pbar.update()
     return errses
