@@ -287,13 +287,14 @@ def sim_step_lengths(pbar, total_time, dt):
 
 
 @memoize(ignore=["progress_interval"])
-def sim_neurons_nest(
+def sim_neurons_nest_eta(
     model,
     q,
     R,
     dt,
     T,
     M=None,
+    eta=0.8,
     I_ext=None,
     model_params=None,
     warmup_time=0.0,
@@ -311,8 +312,13 @@ def sim_neurons_nest(
     method on the neurons after initialization.
     """
     R = np.atleast_1d(R)
-    if M is None:
+    if M is None or len(R) == M:
         M = len(R)
+        conn = "one_to_one"
+    elif len(R) == 1:
+        conn = "all_to_all"
+    else:
+        raise ValueError("R must be a scalar or a vector of length M.")
 
     reset_nest(dt=dt, seed=seed)
 
@@ -320,21 +326,10 @@ def sim_neurons_nest(
     if I_ext is not None:
         neurons.I_e = voltage_slew_to_current(neurons, I_ext)
 
-    noise = nest.Create("poisson_generator", n=len(R), params=dict(rate=R / 2))
-
-    if len(R) == 1:
-        conn = "all_to_all"
-    elif len(R) == M:
-        conn = "one_to_one"
-    else:
-        raise ValueError("R must be a scalar or a vector of length M.")
-
-    nest.Connect(
-        noise, neurons, conn, dict(weight=psp_corrected_weight(neurons[0], q, model))
-    )
-    nest.Connect(
-        noise, neurons, conn, dict(weight=psp_corrected_weight(neurons[0], -q, model))
-    )
+    for frac, q in zip([eta, 1 - eta], split_q(eta, q)):
+        noise = nest.Create("poisson_generator", len(R), dict(rate=R * frac))
+        params = dict(weight=psp_corrected_weight(neurons[0], q, model))
+        nest.Connect(noise, neurons, conn, params)
 
     if connectivity is not None:
         connectivity.connect_nest(neurons, model)
@@ -557,8 +552,8 @@ def backend_unimplemented(*args, **kwargs):
 
 
 SIM_BACKENDS = {
-    "default": sim_neurons_nest,
-    "nest": sim_neurons_nest,
+    "default": sim_neurons_nest_eta,
+    "nest": sim_neurons_nest_eta,
     "bindsnet": sim_neurons_bindsnet,
     "bindsnet:cpu": functools.partial(sim_neurons_bindsnet, device="cpu"),
     "bindsnet:gpu": functools.partial(sim_neurons_bindsnet, device="cuda"),
@@ -604,6 +599,18 @@ def voltage_slew_to_current(neuron, slew):
     order to turn it into the current that would have produced that slew.
     """
     return slew * nest.GetStatus(neuron[0])[0].get("C_m", 1.0)
+
+
+def split_q(eta, q):
+    """
+    Calculate the values of q_e and q_i corresponding to a desired effective
+    synaptic weight q, which depends on the excitatory fraction eta.
+
+    For example, for eta = 0.5, q_e = -q_i = q, and for eta = 0.8 (so the
+    excitatory-inhibitory ratio is 4:1), q_e = q/2 and q_i = -2q.
+    """
+    sqrt_γ = np.sqrt(1 / eta - 1)
+    return q * sqrt_γ, -q / sqrt_γ
 
 
 def psp_corrected_weight(neuron, q, model_name=None):
@@ -655,6 +662,37 @@ class Connectivity:
         raise NotImplementedError(f"{name} does not support Brian2.")
 
 
+class PoissonInput(Connectivity):
+    def __init__(self, eta, q, R_mean, R_amplitude=0.0, frequency_Hz=1.0):
+        self.rate = R_mean
+        self.amplitude = R_amplitude
+        self.frequency = frequency_Hz
+        self.eta = eta
+        self.qs = split_q(self.eta, q)
+
+    def connect_nest(self, neurons, model_name=None):
+        # Split the input up into excitatory and inhibitory parts.
+        fracs = np.array([self.eta, 1 - self.eta])
+        params = dict(
+            amplitude=self.amplitude * fracs,
+            frequency=self.frequency,
+            rate=self.rate * fracs,
+        )
+        inputs = nest.Create("sinusoidal_poisson_generator", 2, params)
+        # Connect each of those with one of the corresponding q values.
+        for input, weight in zip(inputs, self.qs):
+            q = psp_corrected_weight(neurons[0], weight, model_name)
+            nest.Connect(input, neurons, "all_to_all", dict(weight=q))
+
+    def firing_rate(self, t):
+        """
+        Calculate the firing rate of the internal Poisson neurons at a given
+        time in milliseconds.
+        """
+        f = 2e-3 * np.pi * self.frequency
+        return self.rate + self.amplitude * np.sin(f * t)
+
+
 class CombinedConnectivity(Connectivity):
     def __init__(self, *connectivities):
         self.connectivities = connectivities
@@ -673,81 +711,44 @@ class CombinedConnectivity(Connectivity):
 
 
 class RandomConnectivity(Connectivity):
-    def __init__(self, N, q, delay=5.0):
-        self.N = N
-        self.q = q
+    def __init__(self, N, eta, q, delay=5.0):
+        self.eta = eta
+        Nexc = int(N * self.eta)
+        Ninh = N - Nexc
+        self.Ns = Nexc, Ninh
+        self.qs = split_q(eta, q)
         self.delay = delay
 
-    def connect_bindsnet(self, net):
-        M = net.layers["neurons"].n
-        topology = torch.zeros(M, M)
-        for i in range(M):
-            idces = torch.randperm(M)[: self.N]
-            topology[idces[: self.N // 2], i] = self.q
-            topology[idces[self.N // 2 :], i] = -self.q
-        conn = bn.topology.Connection(
-            net.layers["neurons"], net.layers["neurons"], w=topology, delay=self.delay
-        )
-        net.add_connection(conn, "neurons", "neurons")
-
     def connect_nest(self, neurons, model_name):
-        for q in (self.q, -self.q):
+        Mexc = int(len(neurons) * self.eta)
+        pops = neurons[:Mexc], neurons[Mexc:]
+        for pop, N, q in zip(pops, self.Ns, self.qs):
             weight = psp_corrected_weight(neurons[0], q, model_name)
             nest.Connect(
+                pop,
                 neurons,
-                neurons,
-                dict(rule="fixed_indegree", indegree=self.N // 2),
+                dict(rule="fixed_indegree", indegree=N),
                 dict(synapse_model="static_synapse", weight=weight, delay=self.delay),
             )
 
-    def connect_brian2(self, grp):
-        syn = br.Synapses(
-            grp,
-            grp,
-            "w : volt",
-            on_pre="v_post += w",
-            namespace=dict(q=self.q * br.mV),
-            delay=self.delay * br.ms,
-        )
-        i = np.hstack(
-            [np.random.choice(len(grp), self.N, False) for _ in range(len(grp))]
-        )
-        j = np.repeat(np.arange(len(grp)), self.N)
-        syn.connect(i=i, j=j)
-        syn.w = "q * (-1)**int(rand() < 0.5)"
-        return syn
-
 
 class BernoulliAllToAllConnectivity(Connectivity):
-    def __init__(self, p, q):
+    def __init__(self, p, eta, q):
         self.p = p
+        self.eta = eta
         self.q = q
 
     def connect_nest(self, neurons, model_name=None):
-        for q in (self.q, -self.q):
+        Mexc = int(len(neurons) * self.eta)
+        pops = neurons[:Mexc], neurons[Mexc:]
+        for pop, q in zip(pops, split_q(self.eta, self.q)):
             w = psp_corrected_weight(neurons[0], q, model_name)
             nest.Connect(
-                neurons,
+                pop,
                 neurons,
                 "all_to_all",
-                dict(
-                    synapse_model="bernoulli_synapse", weight=w, p_transmit=self.p / 2
-                ),
+                dict(synapse_model="bernoulli_synapse", weight=w, p_transmit=self.p),
             )
-
-    def connect_brian2(self, grp):
-        # Suppress code generation errors because there's no other way to
-        # avoid a warning literally every timestep apparently.
-        br.codegen.generators.base.logger.log_level_error()
-        syn = br.Synapses(
-            grp,
-            grp,
-            "",
-            namespace=dict(q_syn=self.q * br.mV, p=self.p),
-            on_pre="v_post += q_syn * (-1)**int(rand() < 0.5) * (rand() < p)",
-        )
-        syn.connect(condition="i!=j")
-        return syn
 
 
 @contextmanager

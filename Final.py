@@ -229,13 +229,14 @@ upper_Ns = [50, 59, 100]
 
 dt = 0.1
 q = 5.0
+eta = 0.8
 Rb = 0.1e3
 rs = np.linspace(0, 50, num=1000)
 model = LIF
 backend = "NEST"
 
 R, rates = firing_rates(
-    model, q, dt=dt, T=1e5, M=100, sigma_max=10.0, backend=backend.lower()
+    model, q, eta=eta, dt=dt, T=1e5, M=100, sigma_max=10.0, backend=backend.lower()
 )
 p = optimize.curve_fit(softplus_ref, R, rates, method="trf")[0]
 
@@ -367,6 +368,7 @@ print(
 # relative to the amount of input being expected from it, so firing rates
 # are systematically underestimated.
 
+eta = 0.8
 M = 10000
 dt = 0.1
 T = 2e3
@@ -378,6 +380,7 @@ def mean_field_fixed_points(N, R_background, q):
     R, rates = firing_rates(
         model=model,
         q=q,
+        eta=eta,
         dt=dt,
         T=1e5,
         M=100,
@@ -397,9 +400,9 @@ def mean_field_fixed_points(N, R_background, q):
 
 def sim_fixed_points(N, R_background, q, annealed_average=False):
     if annealed_average:
-        connectivity = BernoulliAllToAllConnectivity(N / M, q)
+        connectivity = BernoulliAllToAllConnectivity(N / M, eta, q)
     else:
-        connectivity = RandomConnectivity(N, q, delay=5.0)
+        connectivity = RandomConnectivity(N, eta, q, delay=5.0)
     same_args = dict(
         model=model,
         q=q,

@@ -7,56 +7,26 @@ from matplotlib.ticker import PercentFormatter
 from scipy import optimize
 from tqdm import tqdm
 
-from mfsupport import (LIF, CombinedConnectivity, Connectivity,
-                       RandomConnectivity, figure, firing_rates,
-                       psp_corrected_weight, softplus_ref)
+from mfsupport import (LIF, CombinedConnectivity, PoissonInput,
+                       RandomConnectivity, figure, firing_rates, softplus_ref)
+
 
 plt.ion()
 if "elsevier" in plt.style.available:
     plt.style.use("elsevier")
 
 
-class SinusoidalInput(Connectivity):
-    def __init__(self, R_mean, R_amplitude, frequency_Hz, q):
-        self.rate = R_mean
-        self.amplitude = R_amplitude
-        self.frequency = frequency_Hz
-        self.q = q
-
-    def connect_nest(self, neurons, model_name=None):
-        # The assumption is that firing rates measure the total of an input
-        # with balanced connectivity, so divide it into halves.
-        input = nest.Create(
-            "sinusoidal_poisson_generator",
-            params=dict(
-                amplitude=self.amplitude / 2,
-                frequency=self.frequency,
-                rate=self.rate / 2,
-            ),
-        )
-        for weight in (self.q, -self.q):
-            weight = psp_corrected_weight(neurons[0], weight, model_name)
-            nest.Connect(input, neurons, "all_to_all", dict(weight=weight))
-
-    def firing_rate(self, t):
-        """
-        Calculate the firing rate of the internal Poisson neurons at a given
-        time in milliseconds.
-        """
-        f = 2e-3 * np.pi * self.frequency
-        return self.rate + self.amplitude * np.sin(f * t)
-
-
 # %%
 # Get the SoftPlus fit for the model we'll be using.
 
 model = LIF
+eta = 0.8
 q = 3.0
 dt = 0.1
 backend = "nest"
 
 R, rates = firing_rates(
-    model=model, q=q, dt=dt, T=1e5, M=100, sigma_max=10.0, backend=backend
+    model=model, eta=eta, q=q, dt=dt, T=1e5, M=100, sigma_max=10.0, backend=backend
 )
 p = optimize.curve_fit(softplus_ref, R, rates, method="trf")[0]
 
@@ -74,8 +44,8 @@ def sim_sinusoid(N, M=10000, T=2e3, bin_size_ms=10.0, warmup_time=250.0):
         T=T,
         dt=dt,
         connectivity=CombinedConnectivity(
-            input := SinusoidalInput(10e3, 3e3, 1.0, q),
-            RandomConnectivity(N, q, delay=nest.random.uniform(1.0, 10.0)),
+            input := PoissonInput(eta, q, 10e3, 3e3, 1.0),
+            RandomConnectivity(N, eta, q, delay=nest.random.uniform(1.0, 10.0)),
         ),
         return_times=True,
         R_max=0.0,
@@ -98,7 +68,8 @@ def sim_sinusoid(N, M=10000, T=2e3, bin_size_ms=10.0, warmup_time=250.0):
     return t, r_inputs, np.array(r_pred), r
 
 
-Ns = np.logspace(1, 3, 101).astype(int)
+# Ns = np.logspace(1, 3, 101).astype(int)
+Ns = [0]
 results = [sim_sinusoid(N) for N in tqdm(Ns)]
 
 

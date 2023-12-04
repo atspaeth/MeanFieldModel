@@ -133,6 +133,7 @@ def fig5():
     print("Figure 5")
     dt = 0.1
     M = 10000
+    eta = 0.2
     T = 2e3
     model = LIF
     backend = "NEST"
@@ -157,7 +158,7 @@ def fig5():
             if annealed_average:
                 connectivity = BernoulliAllToAllConnectivity(N / M, q)
             else:
-                connectivity = RandomConnectivity(N, q, delay=5.0)
+                connectivity = RandomConnectivity(N, eta, q, delay=5.0)
             same_args = dict(
                 model=model,
                 q=q,
