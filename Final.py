@@ -372,7 +372,7 @@ print(
 eta = 0.8
 M = 10000
 dt = 0.1
-T = 2e3
+T = 2e4
 model = LIF
 backend = "NEST"
 
@@ -408,6 +408,7 @@ def sim_fixed_points(N, R_background, q, annealed_average=False):
     same_args = dict(
         model=model,
         q=q,
+        eta=eta,
         dt=dt,
         T=T,
         M=M,
@@ -418,22 +419,23 @@ def sim_fixed_points(N, R_background, q, annealed_average=False):
         return_times=True,
         backend=backend.lower(),
     )
-    _, sd_top = firing_rates(warmup_time=1e3, warmup_rate=100e3, **same_args)
+    _, sd_top = firing_rates(warmup_time=1e3, **same_args)
     _, sd_bot = firing_rates(**same_args)
     return np.array(
         [
-            sd_bot.subtime(1e3, ...).rates("Hz").mean(),
-            sd_top.subtime(1e3, ...).rates("Hz").mean(),
+            sd_bot.rates("Hz").mean(),
+            sd_top.rates("Hz").mean(),
         ]
     )
 
 
 N_theo = np.arange(30, 91)
-N_sim = np.linspace(N_theo[0], N_theo[-1], 8).astype(int)
+N_sim = np.linspace(N_theo[0], N_theo[-1], 32).astype(int)
 conditions = [
     # R_bg, q, annealed_average
     (0.1e3, 5.0, False),
     (10e3, 3.0, False),
+    (0.1e3, 5.0, True),
 ]
 
 fp_theo, fp_sim = [], []
