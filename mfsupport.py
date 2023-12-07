@@ -326,10 +326,13 @@ def sim_neurons_nest_eta(
     if I_ext is not None:
         neurons.I_e = voltage_slew_to_current(neurons, I_ext)
 
-    for frac, q in zip([eta, 1 - eta], split_q(eta, q)):
-        noise = nest.Create("poisson_generator", len(R), dict(rate=R * frac))
-        params = dict(weight=psp_corrected_weight(neurons[0], q, model))
-        nest.Connect(noise, neurons, conn, params)
+    q_e, q_i = split_q(eta, q)
+    noise_e = nest.Create("poisson_generator", len(R), dict(rate=R * eta))
+    noise_i = nest.Create("poisson_generator", len(R), dict(rate=R * (1-eta)))
+    w_e = psp_corrected_weight(neurons[0], q_e, model)
+    w_i = psp_corrected_weight(neurons[0], q_i, model)
+    nest.Connect(noise_e, neurons, conn, dict(weight=w_e))
+    nest.Connect(noise_i, neurons, conn, dict(weight=w_i))
 
     if connectivity is not None:
         connectivity.connect_nest(neurons, model)
@@ -344,15 +347,18 @@ def sim_neurons_nest_eta(
         nest.Connect(rec, neurons)
 
     with sim_progress(T + warmup_time, progress_interval) as pbar:
+        # During warmup time, ramp the rate of the excitatory noise from
+        # the warmup value down to the base value, while keeping the
+        # inhibitory rate the same.
         if warmup_time > 0:
-            base_rate = noise.rate
+            base_rate = noise_e.rate
             if warmup_rate is None:
                 warmup_rate = 10 * base_rate
             for i in range(warmup_steps):
-                noise.rate = np.interp(i, [0, warmup_steps], [warmup_rate, base_rate])
+                noise_e.rate = np.interp(i, [0, warmup_steps], [warmup_rate, base_rate])
                 nest.Simulate(warmup_time / warmup_steps)
                 pbar.update(warmup_time / warmup_steps)
-            noise.rate = base_rate
+            noise_e.rate = base_rate
 
         with nest.RunManager():
             for step in sim_step_lengths(pbar, T, dt):
