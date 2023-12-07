@@ -4,11 +4,12 @@
 # ``Model-agnostic neural mean-field models with the Refractory SoftPlus
 # transfer function''
 import matplotlib.pyplot as plt
+import nest
 import numpy as np
 from scipy import optimize, special
 from tqdm import tqdm
 
-from mfsupport import (LIF, BernoulliAllToAllConnectivity, RandomConnectivity,
+from mfsupport import (LIF, AnnealedAverageConnectivity, BernoulliConnectivity,
                        figure, find_fps, firing_rates, fitted_curve,
                        generalization_errors, norm_err, parametrized_F_Finv,
                        relu_ref, rs79, softplus_ref, softplus_ref_q_dep)
@@ -399,10 +400,11 @@ def mean_field_fixed_points(N, R_background, q):
 
 
 def sim_fixed_points(N, R_background, q, annealed_average=False):
-    if annealed_average:
-        connectivity = BernoulliAllToAllConnectivity(N / M, eta, q)
-    else:
-        connectivity = RandomConnectivity(N, eta, q, delay=5.0)
+    delay = 1.0 + nest.random.uniform_int(10)
+    connmodel = (
+        AnnealedAverageConnectivity if annealed_average else BernoulliConnectivity
+    )
+    connectivity = connmodel(N / M, eta, q, delay)
     same_args = dict(
         model=model,
         q=q,

@@ -732,11 +732,33 @@ class RandomConnectivity(Connectivity):
             )
 
 
-class BernoulliAllToAllConnectivity(Connectivity):
-    def __init__(self, p, eta, q):
+class BernoulliConnectivity(Connectivity):
+    def __init__(self, p, eta, q, delay=5.0):
         self.p = p
         self.eta = eta
         self.q = q
+        self.delay = delay
+
+    def connect_nest(self, neurons, model_name=None):
+        Mexc = int(len(neurons) * self.eta)
+        pops = neurons[:Mexc], neurons[Mexc:]
+        for pop, q in zip(pops, split_q(self.eta, self.q)):
+            w = psp_corrected_weight(neurons[0], q, model_name)
+            nest.Connect(
+                pop,
+                neurons,
+                dict(rule="pairwise_bernoulli", p=self.p),
+                dict(synapse_model="static_synapse", weight=w,
+                     delay=self.delay),
+            )
+
+
+class AnnealedAverageConnectivity(Connectivity):
+    def __init__(self, p, eta, q, delay=5.0):
+        self.p = p
+        self.eta = eta
+        self.q = q
+        self.delay = delay
 
     def connect_nest(self, neurons, model_name=None):
         Mexc = int(len(neurons) * self.eta)
