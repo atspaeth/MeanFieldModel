@@ -9,10 +9,10 @@ import numpy as np
 from scipy import optimize, special
 from tqdm import tqdm
 
-from mfsupport import (LIF, AnnealedAverageConnectivity, BernoulliConnectivity,
+from mfsupport import (LIF, AnnealedAverageConnectivity, RandomConnectivity,
                        figure, find_fps, firing_rates, fitted_curve,
                        generalization_errors, norm_err, parametrized_F_Finv,
-                       relu_ref, rs79, softplus_ref, softplus_ref_q_dep)
+                       relu, rs79, softplus_ref, softplus_ref_q_dep)
 
 plt.ion()
 plt.rcParams["figure.dpi"] = 300
@@ -40,8 +40,9 @@ figure_width, figure_height = plt.rcParams["figure.figsize"]
 
 T = 1e5
 q = 1.0
-dt = 0.001
-R_full, rates_full = firing_rates(T=T, q=q, dt=dt, model=LIF, sigma_max=10.0)
+eta = 0.8
+dt = 0.1
+R_full, rates_full = firing_rates(T=T, eta=eta, q=q, dt=dt, model=LIF, sigma_max=10.0)
 
 sub = R_full <= R_full[-1] / 2
 R, rates = R_full[sub] / 1e3, rates_full[sub]
@@ -50,11 +51,11 @@ R, rates = R_full[sub] / 1e3, rates_full[sub]
 tfs = {
     "SoftPlus": softplus_ref,
     "Sigmoid": lambda R, a, b, R0: a / b**2 * special.expit(b**2 * (R - R0)),
-    "ReLU": relu_ref,
+    "ReLU": relu,
 }
 
 x = R_full / 1e3
-with figure("Refractory Softplus Extrapolation") as f:
+with figure("02 Refractory Softplus Extrapolation") as f:
     (ax1, ax2) = f.subplots(2, 1)
     true = rs79(R_full, q, 10, 15, 2)
     ax1.plot(x, rates_full, ".", ms=1)
@@ -469,14 +470,18 @@ with figure(f"06 Sim Fixed Points {backend}") as f:
         ax.plot([], [], f"C{i}" + sim_markers[i], label=label, ms=5, fillstyle="none")
         if theo_markers[i]:
             ax.plot(N_theo, fp_theo[i], theo_markers[i], lw=1)
-        ax.plot(N_sim, fp_sim[i], f"C{i}" + sim_markers[i], ms=5, fillstyle="none")
+        if i < len(fp_sim):
+            fpt = np.mean([fps[0] for fps in fp_sim[i]], 1)
+            fpb = np.mean([fps[1] for fps in fp_sim[i]], 1)
+            ax.plot(N_sim, fpt, f"C{i}" + sim_markers[i], ms=5, fillstyle="none")
+            ax.plot(N_sim, fpb, f"C{i}" + sim_markers[i], ms=5, fillstyle="none")
         ax.set_xlabel("Number of Presynaptic Neurons")
         ax.set_ylabel("Firing Rate (Hz)")
         ax.legend()
 
 
 # %%
-# Figure 7
+# Figure S1
 # ========
 # Compare the RS79 analytical solution to simulated firing rates for
 # a single neuron to demonstrate that it works in the diffusion limit but
@@ -536,7 +541,7 @@ with figure("07 LIF Analytical Solutions", save_args=dict(bbox_inches="tight")) 
 
 
 # %%
-# Figure 8
+# Figure S2
 # ========
 # Here we simulate theoretical transfer functions for a grid of values of
 # R and q, fit a single transfer function to all of them, and plot both the
