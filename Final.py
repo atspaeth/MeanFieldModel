@@ -372,7 +372,7 @@ print(
 eta = 0.8
 M = 10000
 dt = 0.1
-T = 2e4
+T = 250.0
 model = LIF
 backend = "NEST"
 
@@ -418,6 +418,7 @@ def sim_fixed_points(N, R_background, q, annealed_average=False):
         connectivity=connectivity,
         return_times=True,
         backend=backend.lower(),
+        cache=False,
     )
     _, sd_top = firing_rates(warmup_time=1e3, **same_args)
     _, sd_bot = firing_rates(**same_args)
@@ -438,14 +439,19 @@ conditions = [
     (0.1e3, 5.0, True),
 ]
 
-fp_theo, fp_sim = [], []
+fp_sim = []
 with tqdm(total=len(N_sim) * len(conditions)) as pbar:
     for Rb, q, aa in conditions:
-        fp_theo.append([mean_field_fixed_points(N, Rb, q) for N in N_theo])
         fp_sim.append([])
         for N in N_sim:
             fp_sim[-1].append(sim_fixed_points(N, Rb, q, aa))
             pbar.update(1)
+
+fp_theo = [
+    [mean_field_fixed_points(N, Rb, q) for N in tqdm(N_theo)]
+    for Rb, q, aa in conditions
+    if not aa
+]
 
 theo_markers = ["k--", "k-", None]
 sim_markers = ["^", "o", "s"]
