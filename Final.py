@@ -404,7 +404,7 @@ def sim_fixed_points(N, R_background, q, annealed_average=False):
     connmodel = (
         AnnealedAverageConnectivity if annealed_average else BernoulliConnectivity
     )
-    connectivity = connmodel(N / M, eta, q, delay)
+    connectivity = connmodel(N, eta, q, delay)
     same_args = dict(
         model=model,
         q=q,

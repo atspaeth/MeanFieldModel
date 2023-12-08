@@ -328,7 +328,7 @@ def sim_neurons_nest_eta(
 
     q_e, q_i = split_q(eta, q)
     noise_e = nest.Create("poisson_generator", len(R), dict(rate=R * eta))
-    noise_i = nest.Create("poisson_generator", len(R), dict(rate=R * (1-eta)))
+    noise_i = nest.Create("poisson_generator", len(R), dict(rate=R * (1 - eta)))
     w_e = psp_corrected_weight(neurons[0], q_e, model)
     w_i = psp_corrected_weight(neurons[0], q_i, model)
     nest.Connect(noise_e, neurons, conn, dict(weight=w_e))
@@ -739,35 +739,36 @@ class RandomConnectivity(Connectivity):
 
 
 class BernoulliConnectivity(Connectivity):
-    def __init__(self, p, eta, q, delay=5.0):
-        self.p = p
+    def __init__(self, N, eta, q, delay=5.0):
+        self.N = N
         self.eta = eta
         self.q = q
         self.delay = delay
 
     def connect_nest(self, neurons, model_name=None):
-        Mexc = int(len(neurons) * self.eta)
+        M = len(neurons)
+        Mexc = int(M * self.eta)
         pops = neurons[:Mexc], neurons[Mexc:]
         for pop, q in zip(pops, split_q(self.eta, self.q)):
             w = psp_corrected_weight(neurons[0], q, model_name)
             nest.Connect(
                 pop,
                 neurons,
-                dict(rule="pairwise_bernoulli", p=self.p),
-                dict(synapse_model="static_synapse", weight=w,
-                     delay=self.delay),
+                dict(rule="pairwise_bernoulli", p=self.N / M),
+                dict(synapse_model="static_synapse", weight=w, delay=self.delay),
             )
 
 
 class AnnealedAverageConnectivity(Connectivity):
-    def __init__(self, p, eta, q, delay=5.0):
-        self.p = p
+    def __init__(self, N, eta, q, delay=5.0):
+        self.N = N
         self.eta = eta
         self.q = q
         self.delay = delay
 
     def connect_nest(self, neurons, model_name=None):
-        Mexc = int(len(neurons) * self.eta)
+        M = len(neurons)
+        Mexc = int(M * self.eta)
         pops = neurons[:Mexc], neurons[Mexc:]
         for pop, q in zip(pops, split_q(self.eta, self.q)):
             w = psp_corrected_weight(neurons[0], q, model_name)
@@ -775,7 +776,12 @@ class AnnealedAverageConnectivity(Connectivity):
                 pop,
                 neurons,
                 "all_to_all",
-                dict(synapse_model="bernoulli_synapse", weight=w, p_transmit=self.p),
+                dict(
+                    synapse_model="bernoulli_synapse",
+                    weight=w,
+                    p_transmit=self.N / M,
+                    delay=self.delay,
+                ),
             )
 
 
