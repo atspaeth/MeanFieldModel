@@ -9,10 +9,10 @@ import numpy as np
 from scipy import optimize
 from tqdm import tqdm
 
-from mfsupport import (LIF, AnnealedAverageConnectivity, RandomConnectivity,
-                       figure, find_fps, firing_rates, fitted_curve,
+from mfsupport import (AnnealedAverageConnectivity, RandomConnectivity, figure,
+                       find_fps, firing_rates, fitted_curve,
                        generalization_errors, norm_err, parametrized_F_Finv,
-                       relu, rs79, softplus_ref, sigmoid, softplus_ref_q_dep)
+                       relu, rs79, sigmoid, softplus_ref, softplus_ref_q_dep)
 
 plt.ion()
 plt.rcParams["figure.dpi"] = 300
@@ -42,7 +42,9 @@ T = 1e5
 q = 1.0
 eta = 0.8
 dt = 0.1
-R_full, rates_full = firing_rates(T=T, eta=eta, q=q, dt=dt, model=LIF, sigma_max=10.0)
+R_full, rates_full = firing_rates(
+    T=T, eta=eta, q=q, dt=dt, model="iaf_psc_delta", sigma_max=10.0
+)
 
 sub = R_full <= R_full[-1] / 2
 R, rates = R_full[sub] / 1e3, rates_full[sub]
@@ -232,12 +234,9 @@ q = 5.0
 eta = 0.8
 Rb = 0.1e3
 rs = np.linspace(0, 50, num=1000)
-model = LIF
-backend = "NEST"
+model = "iaf_psc_delta"
 
-R, rates = firing_rates(
-    model, q, eta=eta, dt=dt, T=1e5, M=100, sigma_max=10.0, backend=backend.lower()
-)
+R, rates = firing_rates(model, q, eta=eta, dt=dt, T=1e5, M=100, sigma_max=10.0)
 p = optimize.curve_fit(softplus_ref, R, rates, method="trf")[0]
 
 lses = [
@@ -372,8 +371,7 @@ eta = 0.8
 M = 10000
 dt = 0.1
 T = 250.0
-model = LIF
-backend = "NEST"
+model = 'iaf_psc_delta'
 
 
 def mean_field_fixed_points(N, R_background, q):
@@ -385,7 +383,6 @@ def mean_field_fixed_points(N, R_background, q):
         T=1e5,
         M=100,
         sigma_max=10.0,
-        backend=backend.lower(),
         progress_interval=10.0,
     )
     p = optimize.curve_fit(softplus_ref, R, rates, method="trf")[0]
@@ -416,7 +413,6 @@ def sim_fixed_points(N, R_background, q, annealed_average=False):
         uniform_input=True,
         connectivity=connectivity,
         return_times=True,
-        backend=backend.lower(),
         cache=False,
     )
     _, sd_top = firing_rates(warmup_time=1e3, **same_args)
@@ -486,7 +482,7 @@ with figure(f"06 Sim Fixed Points {backend}") as f:
 # not away from it.
 
 T = 1e5
-model = LIF
+model = 'iaf_psc_delta'
 sigma_max = 10.0
 t_refs = [0.0, 2.0]
 
@@ -545,7 +541,7 @@ with figure("07 LIF Analytical Solutions", save_args=dict(bbox_inches="tight")) 
 # R and q, fit a single transfer function to all of them, and plot both the
 # transfer function and its error as a 3D surface.
 
-model = LIF
+model = 'iaf_psc_delta'
 Tmax = 1e7
 dt = 0.1
 qs = np.geomspace(0.1, 10, num=20)

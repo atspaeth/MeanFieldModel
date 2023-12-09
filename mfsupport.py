@@ -1,66 +1,21 @@
-import functools
 import os
 import queue
 from contextlib import contextmanager
 
 import braingeneers.analysis as ba
 import matplotlib.pyplot as plt
+import nest
 import numpy as np
 from braingeneers.iot.messaging import MessageBroker
 from braingeneers.utils.memoize_s3 import memoize
+from pynestml.frontend.pynestml_frontend import generate_nest_target
 from scipy import optimize, special
 from tqdm import tqdm
 
 
-def lazy_package(full_name):
-    if callable(full_name):
-        return lazy_package(full_name.__name__)(full_name)
-
-    def wrapper(func):
-        # If the module is already loaded, don't stub it back out!
-        if func.__name__ in globals():
-            return globals()[func.__name__]
-
-        # If the module isn't loaded, just put this stub in place for now.
-        class stub:
-            def __getattr__(self, attr):
-                from importlib import import_module
-
-                globals()[func.__name__] = ret = import_module(full_name)
-                try:
-                    func()
-                except Exception as e:
-                    globals()[func.__name__] = self
-                    raise e
-                return getattr(ret, attr)
-
-        return stub()
-
-    return wrapper
-
-
-@lazy_package
-def nest():
-    nest.set_verbosity("M_WARNING")
-    from pynestml.frontend.pynestml_frontend import generate_nest_target
-
-    generate_nest_target("models/", "/tmp/nestml-mfsupport/", module_name="mfmodule")
-    nest.Install("mfmodule")
-
-
-@lazy_package("bindsnet.network")
-def bn():
-    pass
-
-
-@lazy_package
-def torch():
-    pass
-
-
-@lazy_package("brian2")
-def br():
-    pass
+nest.set_verbosity("M_WARNING")
+generate_nest_target("models/", "/tmp/nestml-mfsupport/", module_name="mfmodule")
+nest.Install("mfmodule")
 
 
 def _softplus(arg):
@@ -244,7 +199,6 @@ def firing_rates(
     return_times=False,
     uniform_input=False,
     seed=42,
-    backend="default",
     model_params={},
     **kwargs,
 ):
@@ -254,11 +208,7 @@ def firing_rates(
         raise ValueError("Either R_max or sigma_max must be given!")
     R = R_max if uniform_input else np.linspace(0, R_max, num=M)
 
-    if hasattr(model, "model"):
-        model = model(backend)
-        model_params = model_params or model.params
-        model = model.model
-    sim = SIM_BACKENDS[backend] if cache else SIM_BACKENDS[backend].func
+    sim = sim_neurons_nest_eta if cache else sim_neurons_nest_eta.func
     sd = sim(model=model, q=q, R=R, M=M, seed=seed, model_params=model_params, **kwargs)
     return R, (sd if return_times else sd.rates("Hz"))
 
@@ -350,7 +300,7 @@ def sim_neurons_nest_eta(
         nest.Connect(noise, neurons, conn, dict(weight=w))
 
     for c in connectivity:
-        c.connect_nest(neurons, model)
+        c.connect(neurons, model)
 
     if recordables:
         params = dict(record_from=recordables, interval=dt)
@@ -378,235 +328,6 @@ def sim_neurons_nest_eta(
     return ba.SpikeData.from_nest(
         rec, neurons, length=T + warmup_time, metadata=rec.events if recordables else {}
     ).subtime(warmup_time, ...)
-
-
-def run_net_with_rates(net, R, T, Npre):
-    """
-    Given a BindsNET network whose input layer is called 'source' and a set
-    of input rates R, generate balanced Poisson inputs and run the network.
-    """
-    # We have to divide R by Npre because it's split into the Npre balanced
-    # parts, but also change units from Hz to spikes per time step.
-    steps = int(T / net.dt)
-    R = R.repeat_interleave(Npre) / Npre
-    rates = torch.vstack([R * net.dt / 1e3] * steps)
-    input_data = torch.poisson(rates).byte()
-    net.run(inputs={"source": input_data}, time=T)
-
-
-@memoize(ignore=["device", "progress_interval"])
-def sim_neurons_bindsnet(
-    model,
-    q,
-    R,
-    dt,
-    T,
-    M=None,
-    seed=42,
-    model_params={},
-    connectivity=None,
-    warmup_time=0.0,
-    warmup_steps=10,
-    progress_interval=None,
-    device="cuda",
-):
-    """
-    Simulate M neurons of the given model using BindsNET. They receive
-    balanced Poisson inputs with connection strength q and rate R.
-    """
-    with torch.device(device), torch.no_grad():
-        torch.random.manual_seed(seed)
-        R = torch.atleast_1d(torch.as_tensor(R))
-        if M is None:
-            M = len(R)
-        elif len(R) == 1:
-            R = R.repeat(M)
-        elif len(R) != M:
-            raise ValueError("R must be scalar or length M.")
-
-        # Build the base network and its layers. Split each conceptual
-        # Poisson input neuron into Npre separate neurons so weights can be
-        # well-defined and no neuron has to fire more than once per step.
-        Npre = 42
-        net = bn.Network(dt=dt)
-        net.to(device)
-        source = bn.nodes.Input(n=Npre * M)
-        source.to(device)
-        neurons = model(n=M, **model_params)
-        neurons.to(device)
-        net.add_layer(source, name="source")
-        net.add_layer(neurons, name="neurons")
-        if connectivity is not None:
-            connectivity.connect_bindsnet(net)
-
-        # Connect the input to the neurons Npre-to-one with weight ±q,
-        # alternating so the odd indices are negative.
-        w = torch.sparse_csc_tensor(
-            ccol_indices=Npre * torch.arange(M + 1),
-            row_indices=torch.arange(M * Npre),
-            values=q * (-1) ** torch.arange(M * Npre),
-            size=(M * Npre, M),
-        )
-        net.add_connection(
-            source="source",
-            target="neurons",
-            connection=bn.topology.Connection(source=source, target=neurons, w=w),
-        )
-
-        with sim_progress(T + warmup_time, progress_interval) as pbar:
-            # Do the warmup simulation without recording.
-            if warmup_time > 0:
-                warmup_T = warmup_time / warmup_steps
-                for i in range(warmup_steps):
-                    warmup_ramp = np.interp(i, [0, warmup_steps], [10, 1])
-                    run_net_with_rates(net, warmup_ramp * R, warmup_T, Npre)
-                    pbar.update(warmup_T)
-
-            # Add recording before finishing the simulation.
-            monitor = bn.monitors.Monitor(
-                obj=neurons, state_vars=["s"], time=int(T / net.dt)
-            )
-            net.add_monitor(monitor=monitor, name="neurons")
-
-            # Run the simulation broken up into chunks.
-            for step in sim_step_lengths(pbar, T, dt):
-                run_net_with_rates(net, R, step, Npre)
-
-        # Grab the monitor's spike matrix and turn it into SpikeData.
-        times, _, idces = torch.nonzero(monitor.get("s"), as_tuple=True)
-        sd = ba.SpikeData(idces, times * dt, length=float(T), N=M)
-
-    # BindsNET simulations need to be cleared from GPU memory to allow other
-    # simulations to follow them. This is weird because references to the
-    # tensors on GPU are still in Python memory, so GC them first.
-    import gc
-
-    gc.collect()
-    torch.cuda.empty_cache()
-    return sd
-
-
-@memoize(ignore=["progress_interval"])
-def sim_neurons_brian2(
-    model,
-    q,
-    R,
-    dt,
-    T,
-    M=None,
-    connectivity=None,
-    warmup_time=0.0,
-    warmup_steps=10,
-    model_params={},
-    progress_interval=None,
-    seed=42,
-):
-    """
-    Simulate M neurons using Brian2. They receive balanced Poisson inputs
-    with connection strength q and rate R.
-
-    Since Brian2 has no built-in models, a model must be specified as an
-    entire dictionary where 'model' contains a multi-line string with its
-    dynamic equations, 'threshold' contains the spike threshold condition as
-    a boolean expression, etc. A model parameter dictionary is accepted for
-    compatibility with other solvers but is ignored.
-    """
-    R = np.atleast_1d(R)
-    if M is None:
-        M = len(R)
-    elif len(R) not in (1, M):
-        raise ValueError("R must be scalar or length M.")
-
-    br.defaultclock.dt = dt * br.ms
-    neurons = br.NeuronGroup(M, **model)
-
-    # All constructed objects must be explicitly named and in scope so Brian
-    # can extract them for the run() call.
-    if connectivity is not None:
-        syn_recurrent = connectivity.connect_brian2(neurons)  # noqa: F841
-
-    Npre = 150
-    if len(R) == 1:
-        input_pos = br.PoissonInput(neurons, "v", Npre // 2, R[0] / Npre * br.Hz, "q")
-        input_neg = br.PoissonInput(neurons, "v", Npre // 2, R[0] / Npre * br.Hz, "-q")
-    else:
-        # For each postsynaptic neuron, create Npre separate presynaptic
-        # Poisson inputs. The odd ones have negative weights, and the split
-        # must be significantly greater than 2 because it's impossible for
-        # a single neuron to spike multiple times per step.
-        source = br.PoissonGroup(Npre * M, R.repeat(Npre) / Npre * br.Hz)
-        syn = br.Synapses(source, neurons, on_pre="v += (-1)**i * q")
-        syn.connect(j=f"int(i/{Npre})")
-
-    with sim_progress(T + warmup_time, progress_interval) as pbar:
-        # Create the namespace for all simulations. Note that this R is only
-        # relevant for the case where there is only one rate, and is ignored
-        # in the case of a range of values.
-        namespace = dict(q=q * br.mV)
-
-        # Run the warmup simulation.
-        if warmup_time > 0:
-            if len(R) != 1:
-                raise ValueError("Warmup not supported for multiple rates.")
-            step_length = warmup_time / warmup_steps
-            for i in range(warmup_steps, 0, -1):
-                input_pos.R = input_neg.R = i * R[0] / 2 * br.Hz
-                br.run(step_length * br.ms, namespace=namespace)
-                pbar.update(step_length)
-
-        # Add a spike monitor and run the proper simulation.
-        monitor = br.SpikeMonitor(neurons)
-        for step in sim_step_lengths(pbar, T, dt):
-            br.run(step * br.ms, namespace=namespace)
-
-    # Translate the spike monitor into a SpikeData object.
-    return ba.SpikeData(monitor.i, monitor.t / br.ms - warmup_time, length=T, N=M)
-
-
-def backend_unimplemented(*args, **kwargs):
-    raise NotImplementedError("Backend not yet supported.")
-
-
-SIM_BACKENDS = {
-    "default": sim_neurons_nest_eta,
-    "nest": sim_neurons_nest_eta,
-    "bindsnet": sim_neurons_bindsnet,
-    "bindsnet:cpu": functools.partial(sim_neurons_bindsnet, device="cpu"),
-    "bindsnet:gpu": functools.partial(sim_neurons_bindsnet, device="cuda"),
-    "norse": backend_unimplemented,
-    "brian2": sim_neurons_brian2,
-}
-
-
-class LIF:
-    def __init__(self, backend="default"):
-        self.backend = backend.split(":", 1)[0]
-
-    @property
-    def model(self):
-        match self.backend:
-            case "default" | "nest":
-                return "iaf_psc_delta"
-            case "bindsnet":
-                return bn.nodes.LIFNodes
-            case "brian2":
-                return {
-                    "model": """
-                        dv/dt = -v/tau : volt (unless refractory)
-                    """,
-                    "threshold": "v > vt",
-                    "reset": "v=0 * mV",
-                    "namespace": {"tau": 10 * br.ms, "vt": 15 * br.mV},
-                    "refractory": 2 * br.ms,
-                    "method": "euler",
-                }
-
-    @property
-    def params(self):
-        if self.backend == "bindsnet":
-            return dict(thresh=-55.0, rest=-70.0, reset=-70.0, refrac=2, tc_decay=10.0)
-        else:
-            return {}
 
 
 def voltage_slew_to_current(neuron, slew):
@@ -665,17 +386,8 @@ def psp_corrected_weight(neuron, q, model_name=None):
 
 
 class Connectivity:
-    def connect_bindsnet(self, neurons):
-        name = self.__class__.__name__
-        raise NotImplementedError(f"{name} does not support BindsNET.")
-
-    def connect_nest(self, neurons, model_name=None):
-        name = self.__class__.__name__
-        raise NotImplementedError(f"{name} does not support NEST.")
-
-    def connect_brian2(self, neurons):
-        name = self.__class__.__name__
-        raise NotImplementedError(f"{name} does not support Brian2.")
+    def connect(self, neurons, model_name=None):
+        pass
 
     def __iter__(self):
         yield self
@@ -690,7 +402,7 @@ class RandomConnectivity(Connectivity):
         self.qs = split_q(eta, q)
         self.delay = delay
 
-    def connect_nest(self, neurons, model_name):
+    def connect(self, neurons, model_name):
         Mexc = int(len(neurons) * self.eta)
         pops = neurons[:Mexc], neurons[Mexc:]
         for pop, N, q in zip(pops, self.Ns, self.qs):
@@ -710,7 +422,7 @@ class BernoulliConnectivity(Connectivity):
         self.q = q
         self.delay = delay
 
-    def connect_nest(self, neurons, model_name=None):
+    def connect(self, neurons, model_name=None):
         M = len(neurons)
         Mexc = int(M * self.eta)
         pops = neurons[:Mexc], neurons[Mexc:]
@@ -731,7 +443,7 @@ class AnnealedAverageConnectivity(Connectivity):
         self.q = q
         self.delay = delay
 
-    def connect_nest(self, neurons, model_name=None):
+    def connect(self, neurons, model_name=None):
         M = len(neurons)
         Mexc = int(M * self.eta)
         pops = neurons[:Mexc], neurons[Mexc:]
@@ -766,29 +478,8 @@ def figure(name, save_args={}, save_exts=["png"], **kwargs):
     for ext in save_exts:
         if ext[0] != ".":
             ext = "." + ext
-        path = os.path.join(figdir(), fname + ext)
+        path = os.path.join("figures", fname + ext)
         f.savefig(path, **save_args)
-
-
-try:
-    _figdir_before_reload = figdir.dir
-except NameError:
-    _figdir_before_reload = "figures"
-
-
-def figdir(path=None):
-    if path is not None:
-        path = os.path.expanduser(path.strip())
-        if path[0] == "/":
-            figdir.dir = path
-        else:
-            figdir.dir = os.path.join("figures", path)
-        if not os.path.exists(figdir.dir):
-            os.makedirs(figdir.dir)
-    return os.path.abspath(figdir.dir)
-
-
-figdir.dir = _figdir_before_reload
 
 
 def fitted_curve(f, x, y):

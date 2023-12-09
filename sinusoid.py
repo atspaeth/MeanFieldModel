@@ -7,8 +7,7 @@ from matplotlib.ticker import PercentFormatter
 from scipy import optimize
 from tqdm import tqdm
 
-from mfsupport import (LIF, PoissonInput, RandomConnectivity, figure,
-                       firing_rates, softplus_ref)
+from mfsupport import RandomConnectivity, figure, firing_rates, softplus_ref
 
 plt.ion()
 if "elsevier" in plt.style.available:
@@ -18,15 +17,12 @@ if "elsevier" in plt.style.available:
 # %%
 # Get the SoftPlus fit for the model we'll be using.
 
-model = LIF
+model = "iaf_psc_delta"
 eta = 0.8
 q = 3.0
 dt = 0.1
-backend = "nest"
 
-R, rates = firing_rates(
-    model=model, eta=eta, q=q, dt=dt, T=1e5, M=100, sigma_max=10.0, backend=backend
-)
+R, rates = firing_rates(model=model, eta=eta, q=q, dt=dt, T=1e5, M=100, sigma_max=10.0)
 p = optimize.curve_fit(softplus_ref, R, rates, method="trf")[0]
 
 
@@ -50,7 +46,6 @@ def sim_sinusoid(N, M=10000, T=2e3, bin_size_ms=10.0, warmup_time=250.0):
         osc_amplitude=3e3,
         osc_frequency=1.0,
         cache=False,
-        backend=backend,
         progress_interval=None,
         warmup_time=warmup_time,
     )[1].binned(bin_size_ms) / (M * bin_size_ms / 1e3)

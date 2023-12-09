@@ -8,8 +8,8 @@ import os
 import numpy as np
 from braingeneers.iot.messaging import MessageBroker
 
-from mfsupport import (LIF, SIM_BACKENDS, BernoulliAllToAllConnectivity,
-                       RandomConnectivity)
+from mfsupport import (BernoulliAllToAllConnectivity, RandomConnectivity,
+                       sim_neurons_nest_eta)
 
 added = 0
 model_names = {
@@ -28,7 +28,6 @@ def _firing_rates_needs_run(
     return_times=False,
     uniform_input=False,
     seed=42,
-    backend="default",
     model_params={},
     **kwargs,
 ):
@@ -43,12 +42,7 @@ def _firing_rates_needs_run(
         raise ValueError("Either R_max or sigma_max must be given!")
     R = R_max if uniform_input else np.linspace(0, R_max, num=M)
 
-    if hasattr(model, "model"):
-        model = model(backend)
-        model_params = model_params or model.params
-        model = model.model
-
-    return not SIM_BACKENDS[backend].check_call_in_cache(
+    return not sim_neurons_nest_eta.check_call_in_cache(
         model=model, q=q, R=R, M=M, seed=seed, model_params=model_params, **kwargs
     )
 
@@ -122,11 +116,8 @@ def fig4():
     print("Figure 4")
     dt = 0.1
     q = 5.0
-    model = LIF
-    backend = "NEST"
-    firing_rates(
-        model=model, q=q, dt=dt, T=1e5, M=100, sigma_max=10.0, backend=backend.lower()
-    )
+    model = "iaf_psc_delta"
+    firing_rates(model=model, q=q, dt=dt, T=1e5, M=100, sigma_max=10.0)
 
 
 def fig5():
@@ -135,8 +126,7 @@ def fig5():
     M = 10000
     eta = 0.2
     T = 2e3
-    model = LIF
-    backend = "NEST"
+    model = "iaf_psc_delta"
     conditions = [
         # R_bg, q, annealed_average
         (0.1e3, 5.0, False),
@@ -152,7 +142,6 @@ def fig5():
             T=1e5,
             M=100,
             sigma_max=10.0,
-            backend=backend.lower(),
         )
         for N in N_sim:
             if annealed_average:
@@ -170,7 +159,6 @@ def fig5():
                 uniform_input=True,
                 connectivity=connectivity,
                 return_times=True,
-                backend=backend.lower(),
             )
             firing_rates(warmup_time=1e3, warmup_rate=100e3, **same_args)
             firing_rates(**same_args)
@@ -179,7 +167,7 @@ def fig5():
 def fig6():
     print("Figure 6")
     T = 1e5
-    model = LIF
+    model = "iaf_psc_delta"
     sigma_max = 10.0
     t_refs = [0.0, 2.0]
     qs = [0.1, 1.0]
@@ -197,7 +185,7 @@ def fig6():
 
 def fig7():
     print("Figure 7")
-    model = LIF
+    model = "iaf_psc_delta"
     Tmax = 1e7
     dt = 0.1
     qs = np.geomspace(0.1, 10, num=20)
@@ -221,7 +209,8 @@ if __name__ == "__main__":
         queue.put(dict(retries_allowed=3, params=params))
 
     import sys
-    if '--dryrun' in sys.argv or '-n' in sys.argv:
+
+    if "--dryrun" in sys.argv or "-n" in sys.argv:
         print("Dry run, not actually queueing anything")
         put_params = lambda params: None  # noqa: F811
 
