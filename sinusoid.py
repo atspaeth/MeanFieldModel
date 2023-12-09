@@ -7,9 +7,8 @@ from matplotlib.ticker import PercentFormatter
 from scipy import optimize
 from tqdm import tqdm
 
-from mfsupport import (LIF, CombinedConnectivity, PoissonInput,
-                       RandomConnectivity, figure, firing_rates, softplus_ref)
-
+from mfsupport import (LIF, PoissonInput, RandomConnectivity, figure,
+                       firing_rates, softplus_ref)
 
 plt.ion()
 if "elsevier" in plt.style.available:
@@ -43,10 +42,10 @@ def sim_sinusoid(N, M=10000, T=2e3, bin_size_ms=10.0, warmup_time=250.0):
         M=M,
         T=T,
         dt=dt,
-        connectivity=CombinedConnectivity(
+        connectivity=[
             input := PoissonInput(eta, q, 10e3, 3e3, 1.0),
             RandomConnectivity(N, eta, q, delay=nest.random.uniform(1.0, 10.0)),
-        ),
+        ],
         return_times=True,
         R_max=0.0,
         uniform_input=True,
