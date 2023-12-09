@@ -6,7 +6,6 @@
 import matplotlib.pyplot as plt
 import nest
 import numpy as np
-from scipy import optimize
 from tqdm import tqdm
 
 from mfsupport import (AnnealedAverageConnectivity, RandomConnectivity, figure,
@@ -15,7 +14,6 @@ from mfsupport import (AnnealedAverageConnectivity, RandomConnectivity, figure,
                        relu, rs79, sigmoid, softplus_ref, softplus_ref_q_dep)
 
 plt.ion()
-plt.rcParams["figure.dpi"] = 300
 if "elsevier" in plt.style.available:
     plt.style.use("elsevier")
 
@@ -42,37 +40,36 @@ T = 1e5
 q = 1.0
 eta = 0.8
 dt = 0.1
-R_full, rates_full = firing_rates(
-    T=T, eta=eta, q=q, dt=dt, model="iaf_psc_delta", sigma_max=10.0
-)
+R, rates = firing_rates(T=T, eta=eta, q=q, dt=dt, model="iaf_psc_delta", sigma_max=10.0)
 
-sub = R_full <= R_full[-1] / 2
-R, rates = R_full[sub] / 1e3, rates_full[sub]
-
-
+sub = R <= R[-1] / 2
 tfs = dict(Sigmoid=sigmoid, ReLU=relu, SoftPlus=softplus_ref)
+x = R / 1e4
 
-x = R_full / 1e3
 with figure("02 Refractory Softplus Extrapolation") as f:
-    (ax1, ax2) = f.subplots(2, 1)
-    true = rs79(R_full, q, 10, 15, 2)
-    ax1.plot(x, rates_full, ".", ms=1)
-    ax2.plot(x, rates_full - true, ".", ms=1)
-    ax1.plot(x, true, "k:", label="Analytical")
+    ax1, ax2 = f.subplots(2, 1)
+    true = rs79(R, q, 10, 15, 2)
+    ax1.plot(x, rates, ".", ms=1)
+    ax2.plot(x, rates - true, ".", ms=1)
 
     for name, tf in tfs.items():
-        mu = optimize.curve_fit(tf, R, rates, method="lm")[0]
-        rateshat = tf(x, *mu)
+        rateshat = fitted_curve(tf, R[sub], rates[sub])(R)
         ax1.plot(x, rateshat, label=name)
         ax2.plot(x, rateshat - true, label=name)
 
+    ax1.plot(x, true, "k:", label="Diffusion Limit")
     ax1.set_ylabel("Firing Rate (Hz)")
     ax1.set_xticks([])
-    ax1.legend(ncol=2)
-    ax2.set_xlabel("Total Presynaptic Rate $R$ (kHz)")
+    ax1.legend(ncol=2, loc="lower right")
+    ax2.set_xlabel("Mean Rate of $10^4$ Presynaptic Neurons (Hz)")
     ax2.set_ylabel("Error (Hz)")
     lim = ax2.get_ylim()[1]
     ax2.set_ylim(-lim - 10, lim)
+
+    # Mark the boundary between training and extrapolation data.
+    ax2.axvline(5, color="k", lw=0.75)
+    ax1.axvline(5, color="k", lw=0.75)
+    f.align_ylabels([ax1, ax2])
 
 
 # %%
@@ -109,7 +106,7 @@ with figure(
 
     for i, model in enumerate(model_names):
         R, rates = firing_rates(T=T, q=q, dt=dt, model=model, sigma_max=sigma_max)
-        ratehats = fitted_curve(softplus_ref, R, rates)
+        ratehats = fitted_curve(softplus_ref, R, rates)(R)
         base_err = norm_err(rates, ratehats)
 
         r = R / 1e3
@@ -171,10 +168,7 @@ with tqdm(total=len(model_names) * len(Msubs)) as pbar:
         rates = sd.rates("Hz")
         for Msub in Msubs:
             idces = np.linspace(0, Mmax - 1, num=Msub, dtype=int)
-            mu = optimize.curve_fit(softplus_ref, R[idces], rates[idces], method="trf")[
-                0
-            ]
-            rfit = softplus_ref(R, *mu)
+            rfit = fitted_curve(softplus_ref, R[idces], rates[idces])(R)
             residuals_M[m].append(norm_err(rates, rfit))
             pbar.update(1)
 
@@ -187,8 +181,7 @@ with tqdm(total=len(model_names) * len(Tsubs)) as pbar:
         )
         for Tsub in Tsubs:
             rsub = sd.subtime(0, Tsub).rates("Hz")
-            mu = optimize.curve_fit(softplus_ref, R, rsub, method="trf")[0]
-            rfit = softplus_ref(R, *mu)
+            rfit = fitted_curve(softplus_ref, R, rsub)(R)
             residuals_T[m].append(norm_err(sd.rates("Hz"), rfit))
             pbar.update(1)
 
@@ -237,7 +230,7 @@ rs = np.linspace(0, 50, num=1000)
 model = "iaf_psc_delta"
 
 R, rates = firing_rates(model, q, eta=eta, dt=dt, T=1e5, M=100, sigma_max=10.0)
-p = optimize.curve_fit(softplus_ref, R, rates, method="trf")[0]
+tf = fitted_curve(softplus_ref, R, rates)
 
 lses = [
     (0, (3, 1)),
@@ -257,7 +250,7 @@ with figure(
     def plot_Ns(ax, Ns, r_max):
         r_in = np.linspace(0, r_max, num=1000)
         for i, N in enumerate(Ns):
-            F, Finv = parametrized_F_Finv(p, Rb, N, q)
+            F, Finv = parametrized_F_Finv(tf.p, Rb, N, q)
             all_lines.append(
                 ax.plot(
                     r_in, F(r_in), f"C{cmax+i}", ls=lses[cmax + i], label=f"$N = {N}$"
@@ -316,7 +309,7 @@ with figure(
 
 
 def predicate(N):
-    F, Finv = parametrized_F_Finv(p, Rb, N, q)
+    F, Finv = parametrized_F_Finv(tf.p, Rb, N, q)
     try:
         stables, _ = find_fps(50, F, Finv)
     # We'll asssume that failing to find a fixed point means that
@@ -346,14 +339,14 @@ N_star_lower = bifurcate_bistability(Ns[1], Ns[2])
 print("Bifurcation to bistability at N =", N_star_lower)
 print(
     "Lower bifurcation has 0 Hz stable, saddle node at FR =",
-    find_fps(80, *parametrized_F_Finv(p, Rb, int(N_star_lower + 1), q))[0][-1],
+    find_fps(80, *parametrized_F_Finv(tf.p, Rb, int(N_star_lower + 1), q))[0][-1],
 )
 
 N_star_upper = bifurcate_bistability(upper_Ns[0], upper_Ns[-1])
 print("Bifurcation to monostability at N =", N_star_upper)
 print(
     "Upper bifurcation has stable FR =",
-    find_fps(80, *parametrized_F_Finv(p, Rb, int(N_star_upper), q))[0][-1],
+    find_fps(80, *parametrized_F_Finv(tf.p, Rb, int(N_star_upper), q))[0][-1],
 )
 
 
@@ -371,7 +364,7 @@ eta = 0.8
 M = 10000
 dt = 0.1
 T = 250.0
-model = 'iaf_psc_delta'
+model = "iaf_psc_delta"
 
 
 def mean_field_fixed_points(N, R_background, q):
@@ -385,9 +378,8 @@ def mean_field_fixed_points(N, R_background, q):
         sigma_max=10.0,
         progress_interval=10.0,
     )
-    p = optimize.curve_fit(softplus_ref, R, rates, method="trf")[0]
-
-    F, Finv = parametrized_F_Finv(p, R_background, N, q)
+    tf = fitted_curve(softplus_ref, R, rates)
+    F, Finv = parametrized_F_Finv(tf.p, R_background, N, q)
     stables = find_fps(80, F, Finv)[0]
     if len(stables) == 1:
         return np.array(stables * 2)
@@ -482,7 +474,7 @@ with figure(f"06 Sim Fixed Points {backend}") as f:
 # not away from it.
 
 T = 1e5
-model = 'iaf_psc_delta'
+model = "iaf_psc_delta"
 sigma_max = 10.0
 t_refs = [0.0, 2.0]
 
@@ -541,7 +533,7 @@ with figure("07 LIF Analytical Solutions", save_args=dict(bbox_inches="tight")) 
 # R and q, fit a single transfer function to all of them, and plot both the
 # transfer function and its error as a 3D surface.
 
-model = 'iaf_psc_delta'
+model = "iaf_psc_delta"
 Tmax = 1e7
 dt = 0.1
 qs = np.geomspace(0.1, 10, num=20)
@@ -558,10 +550,8 @@ R = Rses[qs[0]] / Ns[0]
 
 Rs_and_qs = np.hstack([(Rses[q], q * np.ones_like(Rses[q])) for q in qs])
 rates = np.hstack([rateses[q] for q in qs])
-mu = optimize.curve_fit(softplus_ref_q_dep, Rs_and_qs, rates, method="trf")[0]
-ratehats = {
-    q: softplus_ref_q_dep([Rses[q], q * np.ones_like(Rses[q])], *mu) for q in qs
-}
+tf = fitted_curve(softplus_ref_q_dep, Rs_and_qs, rates)
+ratehats = {q: tf([Rses[q], q]) for q in qs}
 
 surfargs = dict(color="cyan")
 

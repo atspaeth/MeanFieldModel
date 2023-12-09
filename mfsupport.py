@@ -12,7 +12,6 @@ from pynestml.frontend.pynestml_frontend import generate_nest_target
 from scipy import optimize, special
 from tqdm import tqdm
 
-
 nest.set_verbosity("M_WARNING")
 generate_nest_target("models/", "/tmp/nestml-mfsupport/", module_name="mfmodule")
 nest.Install("mfmodule")
@@ -288,13 +287,14 @@ def sim_neurons_nest_eta(
     noise_e, noise_i = [
         nest.Create(
             "sinusoidal_poisson_generator",
+            len(R),
             params=dict(
                 rate=R * frac, frequency=osc_frequency, amplitude=osc_amplitude * frac
             ),
         )
         for frac in [eta, 1 - eta]
     ]
-    conn = "all_to_all" if len(R) == 1 else "one_to-one"
+    conn = "all_to_all" if len(R) == 1 else "one_to_one"
     for noise, q in zip([noise_e, noise_i], split_q(eta, q)):
         w = psp_corrected_weight(neurons[0], q, model)
         nest.Connect(noise, neurons, conn, dict(weight=w))
@@ -483,7 +483,9 @@ def figure(name, save_args={}, save_exts=["png"], **kwargs):
 
 
 def fitted_curve(f, x, y):
-    return f(x, *optimize.curve_fit(f, x, y, method="trf")[0])
+    ret = lambda xstar: f(xstar, *p)
+    ret.p = p = optimize.curve_fit(f, x, y, method="trf")[0]
+    return ret
 
 
 def norm_err(true, est):
@@ -532,7 +534,7 @@ def generalization_errors(
                     model_params=sample_params[model](),
                     progress_interval=None,
                 )
-                ratehats = fitted_curve(transfer_function, R, rates)
+                ratehats = fitted_curve(transfer_function, R, rates)(R)
                 errses[model].append(norm_err(rates, ratehats))
                 pbar.update()
     return errses
