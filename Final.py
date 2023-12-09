@@ -6,13 +6,13 @@
 import matplotlib.pyplot as plt
 import nest
 import numpy as np
-from scipy import optimize, special
+from scipy import optimize
 from tqdm import tqdm
 
 from mfsupport import (LIF, AnnealedAverageConnectivity, RandomConnectivity,
                        figure, find_fps, firing_rates, fitted_curve,
                        generalization_errors, norm_err, parametrized_F_Finv,
-                       relu, rs79, softplus_ref, softplus_ref_q_dep)
+                       relu, rs79, softplus_ref, sigmoid, softplus_ref_q_dep)
 
 plt.ion()
 plt.rcParams["figure.dpi"] = 300
@@ -48,11 +48,7 @@ sub = R_full <= R_full[-1] / 2
 R, rates = R_full[sub] / 1e3, rates_full[sub]
 
 
-tfs = {
-    "SoftPlus": softplus_ref,
-    "Sigmoid": lambda R, a, b, R0: a / b**2 * special.expit(b**2 * (R - R0)),
-    "ReLU": relu,
-}
+tfs = dict(Sigmoid=sigmoid, ReLU=relu, SoftPlus=softplus_ref)
 
 x = R_full / 1e3
 with figure("02 Refractory Softplus Extrapolation") as f:
@@ -73,6 +69,8 @@ with figure("02 Refractory Softplus Extrapolation") as f:
     ax1.legend(ncol=2)
     ax2.set_xlabel("Total Presynaptic Rate $R$ (kHz)")
     ax2.set_ylabel("Error (Hz)")
+    lim = ax2.get_ylim()[1]
+    ax2.set_ylim(-lim - 10, lim)
 
 
 # %%
