@@ -288,7 +288,9 @@ def sim_step_lengths(pbar, total_time, dt):
         yield residue
         pbar.update(residue)
 
+
 NoConnectivity = []
+
 
 @memoize(ignore=["progress_interval"])
 def sim_neurons_nest_eta(
@@ -303,6 +305,8 @@ def sim_neurons_nest_eta(
     warmup_time=0.0,
     warmup_rate=None,
     warmup_steps=10,
+    osc_amplitude=0.0,
+    osc_frequency=0.0,
     connectivity=NoConnectivity,
     seed=42,
     recordables=None,
@@ -312,7 +316,9 @@ def sim_neurons_nest_eta(
     Simulate M Izhikevich neurons using NEST. They are receiving Poisson
     inputs with connection strength q and rate R, and optionally connected
     to each other by calling the connect() method of the given connectivity
-    objects on the neurons after initialization.
+    object(s) on the neurons after initialization. The amplitude and
+    frequency (both in Hz) of fluctuations in the Poisson input can also
+    be specified.
     """
     R = np.atleast_1d(R)
     if M is None:
@@ -330,7 +336,12 @@ def sim_neurons_nest_eta(
     # Create separate excitatory and inhibitory noise, sharing the rate
     # according to eta, with weights chosen to maintain EI balance.
     noise_e, noise_i = [
-        nest.Create("poisson_generator", len(R), dict(rate=R * frac))
+        nest.Create(
+            "sinusoidal_poisson_generator",
+            params=dict(
+                rate=R * frac, frequency=osc_frequency, amplitude=osc_amplitude * frac
+            ),
+        )
         for frac in [eta, 1 - eta]
     ]
     conn = "all_to_all" if len(R) == 1 else "one_to-one"
@@ -668,37 +679,6 @@ class Connectivity:
 
     def __iter__(self):
         yield self
-
-
-class PoissonInput(Connectivity):
-    def __init__(self, eta, q, R_mean, R_amplitude=0.0, frequency_Hz=1.0):
-        self.rate = R_mean
-        self.amplitude = R_amplitude
-        self.frequency = frequency_Hz
-        self.eta = eta
-        self.q = q
-
-    def connect_nest(self, neurons, model_name=None):
-        # Split the input up into excitatory and inhibitory parts.
-        fracs = np.array([self.eta, 1 - self.eta])
-        params = dict(
-            amplitude=self.amplitude * fracs,
-            frequency=self.frequency,
-            rate=self.rate * fracs,
-        )
-        inputs = nest.Create("sinusoidal_poisson_generator", 2, params)
-        # Connect each of those with one of the corresponding q values.
-        for input, q in zip(inputs, split_q(self.eta, self.q)):
-            w = psp_corrected_weight(neurons[0], q, model_name)
-            nest.Connect(input, neurons, "all_to_all", dict(weight=w))
-
-    def firing_rate(self, t):
-        """
-        Calculate the firing rate of the internal Poisson neurons at a given
-        time in milliseconds.
-        """
-        f = 2e-3 * np.pi * self.frequency
-        return self.rate + self.amplitude * np.sin(f * t)
 
 
 class RandomConnectivity(Connectivity):

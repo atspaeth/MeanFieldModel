@@ -36,19 +36,19 @@ p = optimize.curve_fit(softplus_ref, R, rates, method="trf")[0]
 
 def sim_sinusoid(N, M=10000, T=2e3, bin_size_ms=10.0, warmup_time=250.0):
     t = np.arange(0, T, bin_size_ms)
+    conn = RandomConnectivity(N, eta, q, delay=nest.random.uniform(1.0, 10.0))
     r = firing_rates(
         model=model,
         q=q,
         M=M,
         T=T,
         dt=dt,
-        connectivity=[
-            input := PoissonInput(eta, q, 10e3, 3e3, 1.0),
-            RandomConnectivity(N, eta, q, delay=nest.random.uniform(1.0, 10.0)),
-        ],
+        connectivity=conn,
         return_times=True,
-        R_max=0.0,
         uniform_input=True,
+        R_max=10e3,
+        osc_amplitude=3e3,
+        osc_frequency=1.0,
         cache=False,
         backend=backend,
         progress_interval=None,
