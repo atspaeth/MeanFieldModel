@@ -75,6 +75,75 @@ with figure("02 Refractory Softplus Extrapolation") as f:
 # %%
 # Figure 3
 # ========
+# Three consistency curves for the LIF neuron, demonstrating that the model
+# predicts a saddle-node bifurcation that we're going to be able to observe
+# in the next set of simulations...
+
+Ns = [25, 51, 75]
+
+dt = 0.1
+q = 5.0
+eta = 0.8
+Rb = 0.1e3
+rs = np.linspace(0, 50, num=1000)
+model = "iaf_psc_delta"
+
+R, rates = firing_rates(model, q, eta=eta, dt=dt, T=1e5, M=100, sigma_max=10.0)
+tf = fitted_curve(softplus_ref, R, rates)
+
+
+def is_bistable(N):
+    F, Finv = parametrized_F_Finv(tf.p, Rb, N, q)
+    try:
+        stables, _ = find_fps(50, F, Finv)
+    # We'll asssume that failing to find a fixed point means that
+    # the system isn't bistable anymore.
+    except RuntimeError:
+        return False
+    return len(stables) == 2
+
+
+with figure("03 Consistency Condition") as f:
+    ax = f.gca()
+    ax.set_aspect("equal")
+    r_in = np.linspace(0, 100.0, num=1000)
+    for i, N in enumerate(Ns):
+        F, Finv = parametrized_F_Finv(tf.p, Rb, N, q)
+        ax.plot(r_in, F(r_in), f"C{i}", label=f"$N = {N}$")[0]
+        ax.plot(r_in, r_in, "k:")
+
+        stables, unstables = find_fps(50, F, Finv)
+
+        ax.plot(stables, stables, "ko", fillstyle="full")
+        if len(unstables) > 0:
+            ax.plot(unstables, unstables, "ko", fillstyle="none")
+
+    ax.set_yticks(ax.get_xticks())
+    ax.set_xlabel("Input Firing Rate (Hz)")
+    ax.set_ylabel("Output Firing Rate (Hz)")
+
+    ax.plot([], [], "ko", fillstyle="right", label="Fixed Point")[0]
+    ax.legend()
+
+    upper, lower = Ns[2], Ns[1]
+    while (upper - lower) > abs(upper + lower) * 1e-3:
+        mid = (upper + lower) / 2
+        p_mid = is_bistable(mid)
+        if p_mid:
+            upper = mid
+        else:
+            lower = mid
+    N_star = (upper + lower) / 2
+
+    print("Bifurcation to bistability at N =", N_star)
+    hsfp = find_fps(80, *parametrized_F_Finv(tf.p, Rb, int(N_star + 1), q))[0][-1]
+    print("Lower bifurcation has 0 Hz stable, saddle node at FR =", hsfp)
+    ax.plot(hsfp, hsfp, "ko", fillstyle="right")
+
+
+# %%
+# Figure 4
+# ========
 # This figure demonstrates that Refractory SoftPlus can be fitted to
 # a variety of different neuron configurations.
 
@@ -144,7 +213,7 @@ with figure(
     hist.set_xticklabels([f"{100*x:.1f}\%" for x in hist.get_xticks()])
 
 # %%
-# Figure 4
+# Figure 5
 # ========
 # Convergence of the error as the number of neurons included in the fit
 # increases, and as the total simulation time increases.
@@ -210,144 +279,6 @@ with figure("04 Convergence") as f:
     byT.set_ylim(byM.get_ylim())
 
     byM.legend(loc="lower right")
-
-
-# %%
-# Figure 5
-# ========
-# Three consistency curves for the LIF neuron, demonstrating that the model
-# predicts a saddle-node bifurcation that we're going to be able to observe
-# in the next set of simulations...
-
-Ns = [25, 42, 50]
-upper_Ns = [50, 59, 100]
-
-dt = 0.1
-q = 5.0
-eta = 0.8
-Rb = 0.1e3
-rs = np.linspace(0, 50, num=1000)
-model = "iaf_psc_delta"
-
-R, rates = firing_rates(model, q, eta=eta, dt=dt, T=1e5, M=100, sigma_max=10.0)
-tf = fitted_curve(softplus_ref, R, rates)
-
-lses = [
-    (0, (3, 1)),
-    (3, (6, 1)),
-    (0, (1, 0)),
-    (2.5, (5, 1, 1, 1)),
-    (2, (4, 1, 1, 1, 1, 1)),
-]
-
-with figure(
-    "05 Consistency Condition", figsize=(2 * figure_height, figure_height)
-) as f:
-    axes = f.subplots(1, 2)
-
-    cmax = 0
-
-    def plot_Ns(ax, Ns, r_max):
-        r_in = np.linspace(0, r_max, num=1000)
-        for i, N in enumerate(Ns):
-            F, Finv = parametrized_F_Finv(tf.p, Rb, N, q)
-            all_lines.append(
-                ax.plot(
-                    r_in, F(r_in), f"C{cmax+i}", ls=lses[cmax + i], label=f"$N = {N}$"
-                )[0]
-            )
-            ax.plot(r_in, r_in, "k:")
-
-            stables, unstables = find_fps(50, F, Finv)
-
-            ax.plot(stables, stables, "ko", fillstyle="full")
-            if len(unstables) > 0:
-                ax.plot(unstables, unstables, "ko", fillstyle="none")
-
-    all_lines = []
-    plot_Ns(axes[0], Ns, 50)
-    all_lines.pop(-1)
-    cmax += 2
-    plot_Ns(axes[1], upper_Ns, 100)
-
-    axes[0].set_xticks([0, 25, 50])
-    axes[1].set_xticks([0, 50, 100])
-    for ax in axes:
-        ax.set_aspect("equal")
-        ax.set_yticks(ax.get_xticks())
-        ax.set_xlabel("Input Firing Rate (Hz)")
-        ax.set_ylabel("Output Firing Rate (Hz)")
-
-    all_lines.append(ax.plot([], [], "ko", fillstyle="right", label="Fixed Point")[0])
-    plt.figlegend(
-        all_lines,
-        [ln.get_label() for ln in all_lines],
-        loc=(0.1, 0.6),
-        ncol=1,
-        fontsize="small",
-    )
-
-    axins = axes[1].inset_axes([0.52, -0.01, 0.4, 0.4])
-    plot_Ns(axins, upper_Ns, 150)
-    axins.set_xlim(-0.5, 3.5)
-    axins.set_ylim(*axins.get_xlim())
-    axins.set_xticks([0, 3])
-    axins.set_yticks([0, 3])
-    axins.tick_params(
-        axis="both",
-        which="both",
-        length=2,
-        pad=1.5,
-        labelsize="x-small",
-        direction="out",
-    )
-    axes[1].indicate_inset_zoom(axins, edgecolor="k", alpha=1)
-
-    # Add the half-stable fixed points manually...
-    for ax, hsfp in zip([axes[0], axins], [21.4, 2]):
-        ax.plot(hsfp, hsfp, "ko", fillstyle="right")
-
-
-def predicate(N):
-    F, Finv = parametrized_F_Finv(tf.p, Rb, N, q)
-    try:
-        stables, _ = find_fps(50, F, Finv)
-    # We'll asssume that failing to find a fixed point means that
-    # the system isn't bistable anymore.
-    except RuntimeError:
-        return False
-    return len(stables) == 2
-
-
-def bifurcate_bistability(lower, upper, rtol=1e-3):
-    p_lo, p_hi = predicate(lower), predicate(upper)
-    if p_lo == p_hi:
-        raise ValueError("Binary search requires predicate to differ!")
-
-    while (upper - lower) > abs(upper + lower) * rtol / 2:
-        mid = (upper + lower) / 2
-        p_mid = predicate(mid)
-        if p_mid == p_lo:
-            lower = mid
-        else:
-            upper = mid
-
-    return (upper + lower) / 2
-
-
-N_star_lower = bifurcate_bistability(Ns[1], Ns[2])
-print("Bifurcation to bistability at N =", N_star_lower)
-print(
-    "Lower bifurcation has 0 Hz stable, saddle node at FR =",
-    find_fps(80, *parametrized_F_Finv(tf.p, Rb, int(N_star_lower + 1), q))[0][-1],
-)
-
-N_star_upper = bifurcate_bistability(upper_Ns[0], upper_Ns[-1])
-print("Bifurcation to monostability at N =", N_star_upper)
-print(
-    "Upper bifurcation has stable FR =",
-    find_fps(80, *parametrized_F_Finv(tf.p, Rb, int(N_star_upper), q))[0][-1],
-)
 
 
 # %%
