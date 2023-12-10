@@ -363,7 +363,7 @@ print(
 eta = 0.8
 M = 10000
 dt = 0.1
-T = 250.0
+T = 2.5e3
 model = "iaf_psc_delta"
 
 
@@ -389,9 +389,7 @@ def mean_field_fixed_points(N, R_background, q):
 
 def sim_fixed_points(N, R_background, q, annealed_average=False):
     delay = 1.0 + nest.random.uniform_int(10)
-    connmodel = (
-        AnnealedAverageConnectivity if annealed_average else BernoulliConnectivity
-    )
+    connmodel = AnnealedAverageConnectivity if annealed_average else RandomConnectivity
     connectivity = connmodel(N, eta, q, delay)
     same_args = dict(
         model=model,
@@ -401,24 +399,33 @@ def sim_fixed_points(N, R_background, q, annealed_average=False):
         T=T,
         M=M,
         R_max=R_background,
-        progress_interval=10.0,
+        progress_interval=None,
         uniform_input=True,
         connectivity=connectivity,
-        return_times=True,
-        cache=False,
+        seed=1234,
     )
-    _, sd_top = firing_rates(warmup_time=1e3, **same_args)
-    _, sd_bot = firing_rates(**same_args)
-    return np.array(
-        [
-            sd_bot.rates("Hz").mean(),
-            sd_top.rates("Hz").mean(),
-        ]
-    )
+    # Just do a bunch of short simulations so the FR can be averaged. Fewer
+    # for the bottom case because it's usually zero.
+    fr_top, fr_bot = [], []
+    while len(fr_top) < 10:
+        same_args["seed"] += 1
+        _, sd_top = firing_rates(warmup_time=1e3, return_times=True, **same_args)
+        # Ignore runs where we lose the fixed point, detected by checking if
+        # the second half of the run has less than half the spikes of the
+        # first half after adding one spike per neuron in each half. The bias
+        # avoids false positives from runs with few spikes in both halves.
+        counts = sd_top.binned(T / 2) + M
+        if counts[1] < 0.5 * counts[0]:
+            print(f"{N = }, {counts}, discarding run that fell off of FP.")
+            continue
+        fr_top.append(sd_top.rates("Hz").mean())
+        if len(fr_bot) < 3:
+            fr_bot.append(firing_rates(**same_args)[1].mean())
+    return fr_top, fr_bot
 
 
 N_theo = np.arange(30, 91)
-N_sim = np.linspace(N_theo[0], N_theo[-1], 32).astype(int)
+N_sim = np.array([N for N in N_theo if int(N * eta) == N * eta])
 conditions = [
     # R_bg, q, annealed_average
     (0.1e3, 5.0, False),
@@ -440,28 +447,40 @@ fp_theo = [
     if not aa
 ]
 
-theo_markers = ["k--", "k-", None]
+
+def plotkw(Rb, q, aa):
+    qlb = f"$q=\qty{{{q}}}{{mV}}$"
+    if Rb > 1e3:
+        Rlb = f"$R_\\mathrm{{b}} = \\qty{{{round(Rb/1e3)}}}{{kHz}}$"
+    else:
+        Rlb = f"$R_\\mathrm{{b}} = \\qty{{{Rb/1000}}}{{kHz}}$"
+    label = f"{qlb}, {Rlb}"
+    if aa:
+        label += ", annealed"
+    return dict(label=label, ms=5, fillstyle="none")
+
+
+theo_markers = ["k--", "k-"]
 sim_markers = ["^", "o", "s"]
-with figure(f"06 Sim Fixed Points {backend}") as f:
+with figure("06 Sim Fixed Points") as f:
     ax = f.gca()
     for i, (Rb, q, aa) in enumerate(conditions):
-        qlb = f"$q=\qty{{{q}}}{{mV}}$"
-        if Rb > 1e3:
-            Rlb = f"$R_\\mathrm{{b}} = \\qty{{{round(Rb/1e3)}}}{{kHz}}$"
-        else:
-            Rlb = f"$R_\\mathrm{{b}} = \\qty{{{Rb/1000}}}{{kHz}}$"
-        label = f"{qlb}, {Rlb}"
-        if aa:
-            label += ", annealed"
-        ax.plot([], [], f"C{i}" + sim_markers[i], label=label, ms=5, fillstyle="none")
-        if theo_markers[i]:
+        if not aa:
             ax.plot(N_theo, fp_theo[i], theo_markers[i], lw=1)
-        if i < len(fp_sim):
-            fpt = np.mean([fps[0] for fps in fp_sim[i]], 1)
-            fpb = np.mean([fps[1] for fps in fp_sim[i]], 1)
-            ax.plot(N_sim, fpt, f"C{i}" + sim_markers[i], ms=5, fillstyle="none")
-            ax.plot(N_sim, fpb, f"C{i}" + sim_markers[i], ms=5, fillstyle="none")
-        ax.set_xlabel("Number of Presynaptic Neurons")
+        mark = f"C{i}" + sim_markers[i]
+        ax.plot([], [], mark, **plotkw(Rb, q, aa))
+        # Average the runs for the top and bottom cases, then combine the
+        # cases whenever the bottom case is less than half the top case.
+        fpt = np.mean([fps[0] for fps in fp_sim[i]], 1)
+        fpb = np.mean([fps[1] for fps in fp_sim[i]], 1)
+        distinct = fpb < 0.5 * fpt
+        combined = (fpt[~distinct] + fpb[~distinct]) / 2
+        Nc, Nd = N_sim[~distinct], N_sim[distinct]
+        fpt, fpb = fpt[distinct], fpb[distinct]
+        ax.plot(Nd, fpt, mark, ms=5, fillstyle="none")
+        ax.plot(Nd, fpb, mark, ms=5, fillstyle="none")
+        ax.plot(Nc, combined, mark, ms=5, fillstyle="none")
+        ax.set_xlabel("Number of Recurrent Connections")
         ax.set_ylabel("Firing Rate (Hz)")
         ax.legend()
 

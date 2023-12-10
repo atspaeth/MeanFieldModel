@@ -92,7 +92,7 @@ def relu(R, a, b, R0):
 
 
 def sigmoid(R, a, b, R0):
-    return a / b**2 * special.expit(b**2 * (np.sqrt(R) - R0))
+    return a / b**2 * special.expit(b**2 * (np.sqrt(R / 1e3) - R0))
 
 
 def parametrized_F_Finv(μ_softplus, R_background, N, q=None):
@@ -313,9 +313,14 @@ def sim_neurons_nest_eta(
         if warmup_time > 0:
             base_rate = noise_e.rate
             if warmup_rate is None:
-                warmup_rate = 10 * base_rate
+                warmup_rate = 5 * base_rate
             for i in range(warmup_steps):
-                noise_e.rate = np.interp(i, [0, warmup_steps], [warmup_rate, base_rate])
+                # Ramp the rate downwards from warmup_rate to base_rate.
+                # The last warmup step must be at the base rate to avoid
+                # artefacts in the actual returned data.
+                noise_e.rate = np.interp(
+                    i, [0, warmup_steps - 1], [warmup_rate, base_rate]
+                )
                 nest.Simulate(warmup_time / warmup_steps)
                 pbar.update(warmup_time / warmup_steps)
             noise_e.rate = base_rate
@@ -396,14 +401,14 @@ class Connectivity:
 class RandomConnectivity(Connectivity):
     def __init__(self, N, eta, q, delay=5.0):
         self.eta = eta
-        Nexc = int(N * self.eta)
+        Nexc = round(N * self.eta)
         Ninh = N - Nexc
         self.Ns = Nexc, Ninh
         self.qs = split_q(eta, q)
         self.delay = delay
 
     def connect(self, neurons, model_name):
-        Mexc = int(len(neurons) * self.eta)
+        Mexc = round(len(neurons) * self.eta)
         pops = neurons[:Mexc], neurons[Mexc:]
         for pop, N, q in zip(pops, self.Ns, self.qs):
             weight = psp_corrected_weight(neurons[0], q, model_name)
@@ -424,7 +429,7 @@ class BernoulliConnectivity(Connectivity):
 
     def connect(self, neurons, model_name=None):
         M = len(neurons)
-        Mexc = int(M * self.eta)
+        Mexc = round(M * self.eta)
         pops = neurons[:Mexc], neurons[Mexc:]
         for pop, q in zip(pops, split_q(self.eta, self.q)):
             w = psp_corrected_weight(neurons[0], q, model_name)
@@ -445,7 +450,7 @@ class AnnealedAverageConnectivity(Connectivity):
 
     def connect(self, neurons, model_name=None):
         M = len(neurons)
-        Mexc = int(M * self.eta)
+        Mexc = round(M * self.eta)
         pops = neurons[:Mexc], neurons[Mexc:]
         for pop, q in zip(pops, split_q(self.eta, self.q)):
             w = psp_corrected_weight(neurons[0], q, model_name)
