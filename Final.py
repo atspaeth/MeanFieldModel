@@ -212,6 +212,7 @@ with figure(
     hist.set_xlabel("Normalized Root-Mean-Square Error")
     hist.set_xticklabels([f"{100*x:.1f}\%" for x in hist.get_xticks()])
 
+
 # %%
 # Figure 5
 # ========
@@ -294,7 +295,7 @@ with figure("04 Convergence") as f:
 eta = 0.8
 M = 10000
 dt = 0.1
-T = 2.5e3
+T = 2e3
 model = "iaf_psc_delta"
 
 
@@ -318,63 +319,60 @@ def mean_field_fixed_points(N, R_background, q):
         return np.array(stables)
 
 
-def sim_fixed_points(N, R_background, q, annealed_average=False):
-    delay = 1.0 + nest.random.uniform_int(10)
-    connmodel = AnnealedAverageConnectivity if annealed_average else RandomConnectivity
-    connectivity = connmodel(N, eta, q, delay)
-    same_args = dict(
-        model=model,
-        q=q,
-        eta=eta,
-        dt=dt,
-        T=T,
-        M=M,
-        R_max=R_background,
-        progress_interval=None,
-        uniform_input=True,
-        connectivity=connectivity,
-        seed=1234,
-    )
-    # Just do a bunch of short simulations so the FR can be averaged. Fewer
-    # for the bottom case because it's usually zero.
-    fr_top, fr_bot = [], []
-    while len(fr_top) < 10:
-        same_args["seed"] += 1
-        _, sd_top = firing_rates(warmup_time=1e3, return_times=True, **same_args)
-        # Ignore runs where we lose the fixed point, detected by checking if
-        # the second half of the run has less than half the spikes of the
-        # first half after adding one spike per neuron in each half. The bias
-        # avoids false positives from runs with few spikes in both halves.
-        counts = sd_top.binned(T / 2) + M
-        if counts[1] < 0.5 * counts[0]:
-            print(f"{N = }, {counts}, discarding run that fell off of FP.")
-            continue
-        fr_top.append(sd_top.rates("Hz").mean())
-        if len(fr_bot) < 3:
-            fr_bot.append(firing_rates(**same_args)[1].mean())
-    return fr_top, fr_bot
-
-
 N_theo = np.arange(30, 91)
 N_sim = np.array([N for N in N_theo if int(N * eta) == N * eta])
 conditions = [
     # R_bg, q, annealed_average
-    (0.1e3, 5.0, False),
     (10e3, 3.0, False),
+    (0.1e3, 5.0, False),
     (0.1e3, 5.0, True),
 ]
 
 fp_sim = []
-with tqdm(total=len(N_sim) * len(conditions)) as pbar:
+with tqdm(total=13 * len(N_sim) * len(conditions), desc="Sim") as pbar:
     for Rb, q, aa in conditions:
         fp_sim.append([])
+        delay = 1.0 + nest.random.uniform_int(10)
+        connmodel = AnnealedAverageConnectivity if aa else RandomConnectivity
         for N in N_sim:
-            fp_sim[-1].append(sim_fixed_points(N, Rb, q, aa))
-            pbar.update(1)
+            connectivity = connmodel(N, eta, q, delay)
+            same_args = dict(
+                model=model,
+                q=q,
+                eta=eta,
+                dt=dt,
+                T=T,
+                M=M,
+                R_max=Rb,
+                progress_interval=None,
+                uniform_input=True,
+                connectivity=connectivity,
+                seed=1234,
+            )
+            # Just do a bunch of short simulations so the FR can be averaged. Fewer
+            # for the bottom case because it's usually zero.
+            fr_top, fr_bot = [], []
+            while len(fr_top) < 10:
+                same_args["seed"] += 1
+                _, sd_top = firing_rates(
+                    warmup_time=1e3, return_times=True, **same_args
+                )
+                # Ignore runs where we lose the fixed point, detected by checking if
+                # the firing rate starts out above 5 Hz and ends up below 5 Hz.
+                rate_Hz = sd_top.binned(500) / M / 0.5
+                if rate_Hz[0] > 5.0 > rate_Hz[-1]:
+                    print(f"{N = }, discarding run that fell off of FP.")
+                    continue
+                fr_top.append(sd_top.rates("Hz").mean())
+                pbar.update(1)
+                if len(fr_bot) < 3:
+                    fr_bot.append(firing_rates(**same_args)[1].mean())
+                    pbar.update(1)
+            fp_sim[-1].append((fr_top, fr_bot))
 
 fp_theo = [
-    [mean_field_fixed_points(N, Rb, q) for N in tqdm(N_theo)]
-    for Rb, q, aa in conditions
+    [mean_field_fixed_points(N, Rb, q) for N in tqdm(N_theo, desc=f"Theo {i+1}")]
+    for i, (Rb, q, aa) in enumerate(conditions)
     if not aa
 ]
 
