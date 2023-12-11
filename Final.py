@@ -415,6 +415,85 @@ with figure("06 Sim Fixed Points") as f:
 
 
 # %%
+# Figure 7
+# ========
+# Finite size effects on the fixed point of the recurrent network from the
+# first example of the bifurcation analysis figure. The location of the
+# equilibrium doesn't depend on M, but the variability of the firing rate
+# around it certainly does.
+
+eta = 0.8
+dt = 0.1
+T = 2e3
+model = "iaf_psc_delta"
+Rb = 10e3
+q = 3.0
+N = 75
+
+Ms = np.geomspace(100, 100000, num=31, dtype=int)
+
+delay = 1.0 + nest.random.uniform_int(10)
+run_args = dict(
+    model=model,
+    q=q,
+    eta=eta,
+    dt=dt,
+    T=T,
+    R_max=Rb,
+    # Short warmup to avoid a tiny artefact at the start of trate
+    warmup_time=10.0,
+    warmup_rate=Rb,
+    uniform_input=True,
+    progress_interval=None,
+    return_times=True,
+    connectivity=RandomConnectivity(N, eta, q, delay),
+)
+
+mean, std = [], []
+with tqdm(total=10 * sum(Ms), unit="neuron") as pbar:
+    for M in Ms:
+        mean.append([])
+        std.append([])
+        for i in range(10):
+            _, sd = firing_rates(**run_args, M=M, seed=1234 + i, cache=M > 10000)
+            mean[-1].append(sd.rates("Hz").mean())
+            trate = sd.binned(1) / M / 1e-3
+            std[-1].append(trate.std())
+            pbar.update(M)
+
+mean = np.array(mean)
+std = np.array(std)
+theo = mean_field_fixed_points(N, Rb, q).mean()
+
+# Hang on to an example run with smallish M for the figure.
+_, sd = firing_rates(**run_args, M=1000, cache=False)
+trate = sd.binned(1) / 1000 / 1e-3
+
+with figure("07 Finite Size Effects", figsize=[4.5, 3.0]) as f:
+    axes = f.subplot_mosaic("AA\nBC", height_ratios=[1, 2])
+    axes["A"].plot(trate)
+    axes["A"].set_xlabel("Time (ms)")
+    axes["A"].set_xlim(0, 1e3)
+    axes["A"].set_ylabel("Firing Rate (Hz)")
+
+    axes["B"].axhline(theo, color="grey")
+    mm, ms = mean.mean(1), mean.std(1)
+    axes["B"].semilogx(Ms, mean.mean(1))
+    axes["B"].fill_between(Ms, mm - ms, mm + ms, alpha=0.5)
+    axes["B"].set_xlabel("Number of Neurons")
+    axes["B"].set_ylabel("Firing Rate (Hz)")
+
+    sm, ss = std.mean(1), std.std(1)
+    axes["C"].semilogx(Ms, sm, label="Simulation")
+    axes["C"].fill_between(Ms, sm - ss, sm + ss, alpha=0.5)
+    axes["C"].plot([], [], "grey", label="Model")
+    axes["C"].plot(Ms, 500 / np.sqrt(Ms), "k:", label="Square Root Law")
+    axes["C"].legend()
+    axes["C"].set_xlabel("Number of Neurons")
+    axes["C"].set_ylabel("F.R. Variation (Hz)")
+
+
+# %%
 # Figure S1
 # ========
 # Compare the RS79 analytical solution to simulated firing rates for
