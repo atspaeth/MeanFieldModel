@@ -144,78 +144,6 @@ with figure("03 Consistency Condition") as f:
 # %%
 # Figure 4
 # ========
-# This figure demonstrates that Refractory SoftPlus can be fitted to
-# a variety of different neuron configurations.
-
-T = 1e5
-q = 1.0
-dt = 0.1
-sigma_max = 10.0
-N_samples = 100
-
-errses = generalization_errors(
-    softplus_ref, T=T, q=q, dt=dt, sigma_max=sigma_max, N_samples=N_samples
-)
-
-with figure(
-    "03 Parameter Generalization",
-    figsize=[5.1, 3.0],
-    save_args=dict(bbox_inches="tight"),
-) as f:
-    ftop, fbot = f.subfigures(2, 1)
-    hist = fbot.subplots()
-
-    tf, err = [], []
-    x = 3
-    tops = ftop.subfigures(1, 6, width_ratios=[1, x, 1, x, 1, x])[1::2]
-    for sf in tops:
-        ax = sf.subplots(2, 1, gridspec_kw=dict(hspace=0.1))
-        tf.append(ax[0])
-        err.append(ax[1])
-
-    for i, model in enumerate(model_names):
-        R, rates = firing_rates(T=T, q=q, dt=dt, model=model, sigma_max=sigma_max)
-        ratehats = fitted_curve(softplus_ref, R, rates)(R)
-        base_err = norm_err(rates, ratehats)
-
-        r = R / 1e3
-        tf[i].plot(r, rates, f"C{i}o", ms=1)
-        tf[i].plot(r, ratehats, "k:")
-        tf[i].set_xticks([])
-        tf[i].set_title(model_names[model])
-
-        err[i].plot(r, (rates - ratehats) / rates.max(), f"C{i}o", ms=1)
-        err[i].set_xlabel("Input Rate $R$ (kHz)")
-        tf[i].set_ylabel("FR (Hz)")
-        err[i].set_ylabel("Error")
-        err[i].set_ylim(-0.0325, 0.0325)
-        err[i].set_yticks([-0.03, 0, 0.03], ["-3\%", "0\%", "3\%"])
-
-        bins = np.linspace(0.004, 0.016, 41)
-        hist.hist(
-            errses[model],
-            alpha=0.75,
-            label=model_names[model],
-            bins=bins,
-            facecolor=f"C{i}",
-            histtype="stepfilled",
-            edgecolor=f"C{i}",
-            ls=model_line_styles[model],
-        )
-        hist.plot(base_err, 8.5, f"C{i}*")
-        hist.legend()
-
-    for sf in tops:
-        sf.align_ylabels()
-
-    hist.set_ylabel("Count")
-    hist.set_xlabel("Normalized Root-Mean-Square Error")
-    hist.set_xticklabels([f"{100*x:.1f}\%" for x in hist.get_xticks()])
-
-
-# %%
-# Figure 5
-# ========
 # Convergence of the error as the number of neurons included in the fit
 # increases, and as the total simulation time increases.
 
@@ -280,6 +208,78 @@ with figure("04 Convergence") as f:
     byT.set_ylim(byM.get_ylim())
 
     byM.legend(loc="lower right")
+
+
+# %%
+# Figure 5
+# ========
+# This figure demonstrates that Refractory SoftPlus can be fitted to
+# a variety of different neuron configurations.
+
+T = 1e5
+q = 1.0
+dt = 0.1
+sigma_max = 10.0
+N_samples = 100
+
+errses = generalization_errors(
+    softplus_ref, T=T, q=q, dt=dt, sigma_max=sigma_max, N_samples=N_samples
+)
+
+with figure(
+    "05 Parameter Generalization",
+    figsize=[5.1, 3.0],
+    save_args=dict(bbox_inches="tight"),
+) as f:
+    ftop, fbot = f.subfigures(2, 1)
+    hist = fbot.subplots()
+
+    tf, err = [], []
+    x = 3
+    tops = ftop.subfigures(1, 6, width_ratios=[1, x, 1, x, 1, x])[1::2]
+    for sf in tops:
+        ax = sf.subplots(2, 1, gridspec_kw=dict(hspace=0.1))
+        tf.append(ax[0])
+        err.append(ax[1])
+
+    for i, model in enumerate(model_names):
+        R, rates = firing_rates(T=T, q=q, dt=dt, model=model, sigma_max=sigma_max)
+        ratehats = fitted_curve(softplus_ref, R, rates)(R)
+        base_err = norm_err(rates, ratehats)
+
+        r = R / 1e3
+        tf[i].plot(r, rates, f"C{i}o", ms=1)
+        tf[i].plot(r, ratehats, "k:")
+        tf[i].set_xticks([])
+        tf[i].set_title(model_names[model])
+
+        err[i].plot(r, (rates - ratehats) / rates.max(), f"C{i}o", ms=1)
+        err[i].set_xlabel("Input Rate $R$ (kHz)")
+        tf[i].set_ylabel("FR (Hz)")
+        err[i].set_ylabel("Error")
+        err[i].set_ylim(-0.0325, 0.0325)
+        err[i].set_yticks([-0.03, 0, 0.03], ["-3\%", "0\%", "3\%"])
+
+        bins = np.linspace(0.004, 0.016, 41)
+        hist.hist(
+            errses[model],
+            alpha=0.75,
+            label=model_names[model],
+            bins=bins,
+            facecolor=f"C{i}",
+            histtype="stepfilled",
+            edgecolor=f"C{i}",
+            ls=model_line_styles[model],
+        )
+        hist.plot(base_err, 8.5, f"C{i}*")
+        hist.legend()
+
+    for sf in tops:
+        sf.align_ylabels()
+
+    hist.set_ylabel("Count")
+    hist.set_xlabel("Normalized Root-Mean-Square Error")
+    hist.set_xticklabels([f"{100*x:.1f}\%" for x in hist.get_xticks()])
 
 
 # %%
@@ -426,7 +426,7 @@ model = "iaf_psc_delta"
 sigma_max = 10.0
 t_refs = [0.0, 2.0]
 
-with figure("07 LIF Analytical Solutions", save_args=dict(bbox_inches="tight")) as f:
+with figure("S1 LIF Analytical Solutions", save_args=dict(bbox_inches="tight")) as f:
     axes = f.subplots(2, 2)
     for t_ref, axr, axe in zip(t_refs, *axes):
         conditions = {
@@ -507,7 +507,7 @@ surfargs = dict(color="cyan")
 # that overflows the columns of my paper.
 bb = plt.matplotlib.transforms.Bbox([[0.75, 0], [6, 2.5]])
 with figure(
-    "08 FR and Error Landscapes", figsize=(6, 2.5), save_args=dict(bbox_inches=bb)
+    "S2 FR and Error Landscapes", figsize=(6, 2.5), save_args=dict(bbox_inches=bb)
 ) as f:
     fr, err = f.subplots(1, 2, subplot_kw=dict(projection="3d", facecolor="#00000000"))
 
