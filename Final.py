@@ -298,28 +298,6 @@ dt = 0.1
 T = 2e3
 model = "iaf_psc_delta"
 
-R, rates = firing_rates(
-    model=model,
-    q=q,
-    eta=eta,
-    dt=dt,
-    T=1e5,
-    M=100,
-    sigma_max=10.0,
-    progress_interval=10.0,
-)
-tf = fitted_curve(softplus_ref, R, rates)
-
-
-def mean_field_fixed_points(N, R_background, q):
-    F, Finv = parametrized_F_Finv(tf.p, R_background, N, q)
-    stables = find_fps(80, F, Finv)[0]
-    if len(stables) == 1:
-        return np.array(stables * 2)
-    else:
-        return np.array(stables)
-
-
 N_theo = np.arange(30, 91)
 N_sim = np.array([N for N in N_theo if int(N * eta) == N * eta])
 conditions = [
@@ -328,6 +306,27 @@ conditions = [
     (0.1e3, 5.0, False),
     (0.1e3, 5.0, True),
 ]
+
+fp_theo = []
+for Rb, q, aa in conditions:
+    fp_theo.append([])
+    if aa:
+        continue
+    R, rates = firing_rates(model, q, eta=eta, dt=dt, T=1e5, M=100, sigma_max=10.0)
+    tf = fitted_curve(softplus_ref, R, rates)
+    lowers, uppers, unstables = [], [], []
+    for N in N_theo:
+        F, Finv = parametrized_F_Finv(tf.p, Rb, N, q)
+        st, us = find_fps(40, F, Finv)
+        lowers.append((N, st[0]))
+        if len(us) == 1:
+            unstables.append((N, us[0]))
+        if len(st) == 2:
+            uppers.append((N, st[1]))
+    fp_theo[-1].append(np.array(lowers))
+    fp_theo[-1].append(np.array(uppers))
+    fp_theo[-1].append(np.array(unstables))
+
 
 fp_sim = []
 with tqdm(total=13 * len(N_sim) * len(conditions), desc="Sim") as pbar:
@@ -355,27 +354,19 @@ with tqdm(total=13 * len(N_sim) * len(conditions), desc="Sim") as pbar:
             fr_top, fr_bot = [], []
             while len(fr_top) < 10:
                 same_args["seed"] += 1
-                _, sd_top = firing_rates(
-                    warmup_time=1e3, return_times=True, **same_args
-                )
-                # Ignore runs where we lose the fixed point, detected by checking if
-                # the firing rate starts out above 5 Hz and ends up below 5 Hz.
-                rate_Hz = sd_top.binned(500) / M / 0.5
-                if rate_Hz[0] > 5.0 > rate_Hz[-1]:
-                    print(f"{N = }, discarding run that fell off of FP.")
+                fr = firing_rates(warmup_time=1e3, **same_args)[1].mean()
+                # For the N = 55 case, we often fall off the fixed point
+                # (sometimes even within the warmup time) so reject any that
+                # have total firing rate below 10 Hz.
+                if N == 55 and fr < 10:
+                    print("N = 55 exception rejecting FR", fr, "Hz.")
                     continue
-                fr_top.append(sd_top.rates("Hz").mean())
+                fr_top.append(fr)
                 pbar.update(1)
                 if len(fr_bot) < 3:
                     fr_bot.append(firing_rates(**same_args)[1].mean())
                     pbar.update(1)
             fp_sim[-1].append((fr_top, fr_bot))
-
-fp_theo = [
-    [mean_field_fixed_points(N, Rb, q) for N in tqdm(N_theo, desc=f"Theo {i+1}")]
-    for i, (Rb, q, aa) in enumerate(conditions)
-    if not aa
-]
 
 
 def plotkw(Rb, q, aa):
@@ -390,13 +381,25 @@ def plotkw(Rb, q, aa):
     return dict(label=label, ms=5, fillstyle="none")
 
 
-theo_markers = ["k--", "k-"]
+theo_markers = ["--", "-"]
 sim_markers = ["^", "o", "s"]
 with figure("06 Sim Fixed Points") as f:
     ax = f.gca()
     for i, (Rb, q, aa) in enumerate(conditions):
-        if not aa:
-            ax.plot(N_theo, fp_theo[i], theo_markers[i], lw=1)
+        # We didn't compute the theoretical fixed points for the AA version.
+        if i in (0, 1):
+            # There will always be a lower stable fixed point.
+            lowers, uppers, unstables = fp_theo[i]
+            ax.plot(lowers[:, 0], lowers[:, 1], "k" + theo_markers[i], lw=1)
+        # Only this condition is bistable.
+        if i == 1:
+            # Add a fake point at the real bifurcation (which isn't at an
+            # integer value of N) so the bifurcation looks nice.
+            bifurcation = 51.2, 28
+            unstables = np.vstack([bifurcation, unstables])
+            uppers = np.vstack([bifurcation, uppers])
+            ax.plot(unstables[:, 0], unstables[:, 1], "r" + theo_markers[i], lw=1)
+            ax.plot(uppers[:, 0], uppers[:, 1], "k" + theo_markers[i], lw=1)
         mark = f"C{i}" + sim_markers[i]
         ax.plot([], [], mark, **plotkw(Rb, q, aa))
         # Average the runs for the top and bottom cases, then combine the
@@ -464,7 +467,12 @@ with tqdm(total=10 * sum(Ms), unit="neuron") as pbar:
 
 mean = np.array(mean)
 std = np.array(std)
-theo = mean_field_fixed_points(N, Rb, q).mean()
+
+# The model predicted value of `mean` is `theo`
+R, rates = firing_rates(model, q, eta=eta, dt=dt, T=1e5, M=100, sigma_max=10.0)
+tf = fitted_curve(softplus_ref, R, rates)
+F, Finv = parametrized_F_Finv(tf.p, Rb, N, q)
+[theo], () = find_fps(40, F, Finv)
 
 # Hang on to an example run with smallish M for the figure.
 _, sd = firing_rates(**run_args, M=1000, cache=False)

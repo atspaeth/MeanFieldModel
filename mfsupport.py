@@ -166,7 +166,7 @@ def find_fps(r_top, F, Finv, atol=0.1):
     # use iteration on the inverse dynamics to find the unstable FP.
     if stable_fps[-1] > atol + stable_fps[0]:
         try:
-            unstable_fp = optimize.fixed_point(Finv, r_top / 2, method="iteration")
+            unstable_fp = optimize.fixed_point(Finv, r_top / 2)
             return stable_fps, [unstable_fp]
         except RuntimeError:
             pass
