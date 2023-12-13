@@ -6,6 +6,7 @@
 import matplotlib.pyplot as plt
 import nest
 import numpy as np
+from scipy import signal
 from tqdm import tqdm
 
 from mfsupport import (AnnealedAverageConnectivity, RandomConnectivity, figure,
@@ -27,7 +28,6 @@ model_line_styles = {
     "izhikevich": (3, (6, 1)),
     "hh_psc_alpha": (2.5, (5, 1, 1, 1)),
 }
-figure_width, figure_height = plt.rcParams["figure.figsize"]
 
 
 # %%
@@ -298,19 +298,20 @@ dt = 0.1
 T = 2e3
 model = "iaf_psc_delta"
 
+R, rates = firing_rates(
+    model=model,
+    q=q,
+    eta=eta,
+    dt=dt,
+    T=1e5,
+    M=100,
+    sigma_max=10.0,
+    progress_interval=10.0,
+)
+tf = fitted_curve(softplus_ref, R, rates)
+
 
 def mean_field_fixed_points(N, R_background, q):
-    R, rates = firing_rates(
-        model=model,
-        q=q,
-        eta=eta,
-        dt=dt,
-        T=1e5,
-        M=100,
-        sigma_max=10.0,
-        progress_interval=10.0,
-    )
-    tf = fitted_curve(softplus_ref, R, rates)
     F, Finv = parametrized_F_Finv(tf.p, R_background, N, q)
     stables = find_fps(80, F, Finv)[0]
     if len(stables) == 1:
@@ -491,6 +492,130 @@ with figure("07 Finite Size Effects", figsize=[4.5, 3.0]) as f:
     axes["C"].legend()
     axes["C"].set_xlabel("Number of Neurons")
     axes["C"].set_ylabel("F.R. Variation (Hz)")
+
+
+# %%
+# Figure 8
+# ========
+# Demonstrating modeling the dynamics appropriately and inappropriately via
+# a few examples of the model behavior, and a graph of diverging error with
+# increasing fraction of the input which is recurrent.
+
+eta = 0.8
+q = 3.0
+dt = 0.1
+tau = 1.0
+Rb = 10e3
+
+M = 10000
+T = 2e3
+bin_size_ms = 10.0
+warmup_bins = 10
+warmup_ms = warmup_bins * bin_size_ms
+
+
+def sim_sinusoid(model, N, seed=1234):
+    delay = 1.0 + nest.random.uniform_int(10)
+    t = np.arange(0, T, bin_size_ms)
+    return t, firing_rates(
+        model=model,
+        q=q,
+        M=M,
+        T=T + warmup_ms,
+        dt=dt,
+        connectivity=RandomConnectivity(N, eta, q, delay=delay),
+        return_times=True,
+        uniform_input=True,
+        R_max=Rb,
+        osc_amplitude=3e3,
+        osc_frequency=1.0,
+        seed=seed,
+        cache=False,
+        progress_interval=None,
+    )[1].binned(bin_size_ms)[warmup_bins:] / (M / 1e3 * bin_size_ms)
+
+
+def mf_sinusoid(N, tf):
+    last_r, r_pred = 0.0, []
+    t_full = np.arange(-3 * tau, T)
+    r_inputs = 10e3 + 3e3 * np.sin(2 * np.pi * (t_full + warmup_ms) / 1e3)
+    for i, r_input in enumerate(r_inputs):
+        r_star = tf(r_input + N * last_r)
+        rdot = (r_star - last_r) / tau
+        last_r += rdot  # here dt is 1 ms
+        r_pred.append(last_r)
+    return t_full[t_full >= 0], np.array(r_pred)[t_full >= 0]
+
+
+sin_egs = [
+    ("iaf_psc_delta", 10),
+    ("iaf_psc_delta", 100),
+    ("izhikevich", 40),
+    ("hh_psc_alpha", 60),
+]
+
+eg_results = []
+for model, N in sin_egs:
+    R, rates = firing_rates(
+        model=model, eta=eta, q=q, dt=dt, T=1e5, M=100, sigma_max=10.0
+    )
+    tf = fitted_curve(softplus_ref, R, rates)
+    true = sim_sinusoid(model, N)
+    pred = mf_sinusoid(N, tf)
+    # Awkwardly combine both results tuples into one thing.
+    eg_results.append(true + pred)
+
+
+model = "iaf_psc_delta"
+n_seeds = 10
+Ns = np.geomspace(3, 300, num=21, dtype=int)
+
+R, rates = firing_rates(model=model, eta=eta, q=q, dt=dt, T=1e5, M=100, sigma_max=10.0)
+tf = fitted_curve(softplus_ref, R, rates)
+
+sweep_results = []
+with tqdm(total=len(Ns) * n_seeds) as pbar:
+    for N in Ns:
+        tp, pred = mf_sinusoid(N, tf)
+        pred = signal.decimate(pred, 10)
+        sweep_results.append([])
+        for i in range(n_seeds):
+            t, true = sim_sinusoid(model, N, seed=1234 + i)
+            sweep_results[-1].append(norm_err(true, pred))
+            pbar.update(1)
+sweep_results = np.array(sweep_results)
+
+
+input_fracs = []
+for N in Ns:
+    F, Finv = parametrized_F_Finv(tf.p, Rb, N)
+    (r,), () = find_fps(80, F, Finv)
+    input_fracs.append(r * N / (r * N + Rb))
+
+
+with figure("08 Sinusoid Following", figsize=[5.0, 3.0]) as f:
+    axes = f.subplot_mosaic("AE\nBE\nCE\nDE", width_ratios=[1, 2])
+    A, B, C, D, E = [axes[c] for c in "ABCDE"]
+
+    for ax, (tt, true, tp, pred) in zip([A, B, C, D], eg_results):
+        ax.plot(tt / 1e3, true)
+        ax.plot(tp / 1e3, pred, "k-")
+        ax.set_ylabel("FR (Hz)")
+        if ax is D:
+            ax.set_xlabel("Time (s)")
+        else:
+            ax.set_xticks([])
+    f.align_ylabels([A, B, C, D])
+
+    emean = sweep_results.mean(1)
+    estd = sweep_results.std(1)
+    E.plot(input_fracs, emean)
+    E.fill_between(input_fracs, emean - estd, emean + estd, alpha=0.5)
+    E.set_xlabel("Input From Recurrent Neurons (\%)")
+    E.set_ylabel("Error (\%)")
+    percents = plt.matplotlib.ticker.PercentFormatter(decimals=0, xmax=1)
+    E.xaxis.set_major_formatter(percents)
+    E.yaxis.set_major_formatter(percents)
 
 
 # %%
