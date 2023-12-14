@@ -3,6 +3,8 @@
 # This script generates all the figures from our new manuscript
 # ``Model-agnostic neural mean-field models with the Refractory SoftPlus
 # transfer function''
+from itertools import zip_longest
+
 import matplotlib.pyplot as plt
 import nest
 import numpy as np
@@ -503,6 +505,71 @@ with figure("07 Finite Size Effects", figsize=[4.5, 3.0]) as f:
 
 
 # %%
+# Table 2
+# =======
+# Compute the practical stability of the fixed point for the N = 55 case with both
+# fixed and annealed-average connectivity.
+
+N = 55
+Rb = 0.1e3
+q = 5.0
+
+eta = 0.8
+dt = 0.1
+T = 2e3
+model = "iaf_psc_delta"
+
+# You can't construct AA connectivity for very large networks, so stop at 20k
+# and assume it's 100% after that.
+Ms = [1000, 2000, 5000, 10000, 20000, 50000, 100000]
+Ms_aa = Ms[:-2]
+N_samples = 50
+
+
+def practical_stability(M, aa, pbar=None):
+    delay = 1.0 + nest.random.uniform_int(10)
+    cmodel = AnnealedAverageConnectivity if aa else RandomConnectivity
+    common_args = dict(
+        model=model,
+        M=M,
+        q=q,
+        dt=dt,
+        eta=eta,
+        T=T,
+        R_max=Rb,
+        progress_interval=None,
+        uniform_input=True,
+        connectivity=cmodel(N, eta, q, delay),
+        return_times=True,
+        cache=M > 10000,
+        warmup_time=1e3,
+    )
+    count = 0
+    for i in range(N_samples):
+        _, sd = firing_rates(**common_args, seed=1234 + i)
+        trate = sd.binned(500.0) / M / 0.5
+        # This is arbitrary, but in this particular case, the fixed point is near 80, so
+        # a false negative is extremely unlikely. A false positive probably just means
+        # that it fell off the FP _right_ at the end, because the variance of the lower
+        # FP is very low if it's actually sitting there.
+        if trate[-1] > 20:
+            count += 1
+        if pbar is not None:
+            pbar.update(M)
+    return count / N_samples
+
+
+with tqdm(total=N_samples * (sum(Ms) + sum(Ms_aa)), unit="neurons") as pbar:
+    stability = [practical_stability(M, False, pbar=pbar) for M in Ms]
+    stability_aa = [practical_stability(M, True, pbar=pbar) for M in Ms_aa]
+
+
+print("Practical stability of fixed connectivity:")
+for M, s, sa in zip_longest(Ms, stability, stability_aa, fillvalue=1):
+    print(f"${M = :6d}$ & {s:.0%} & {sa:.0%} \\\\".replace("%", "\%"))
+
+
+# %%
 # Figure 8
 # ========
 # Demonstrating modeling the dynamics appropriately and inappropriately via
@@ -564,9 +631,7 @@ sin_egs = [
 
 eg_results = []
 for model, N in sin_egs:
-    R, rates = firing_rates(
-        model=model, eta=eta, q=q, dt=dt, T=1e5, M=100, sigma_max=10.0
-    )
+    R, rates = firing_rates(model=model, eta=eta, q=q, dt=dt, T=1e5, sigma_max=10.0)
     tf = fitted_curve(softplus_ref, R, rates)
     true = sim_sinusoid(model, N)
     pred = mf_sinusoid(N, tf)
@@ -576,7 +641,7 @@ for model, N in sin_egs:
 
 model = "iaf_psc_delta"
 n_seeds = 10
-Ns = np.geomspace(3, 300, num=21, dtype=int)
+Ns = np.geomspace(3, 1000, num=31, dtype=int)
 
 R, rates = firing_rates(model=model, eta=eta, q=q, dt=dt, T=1e5, M=100, sigma_max=10.0)
 tf = fitted_curve(softplus_ref, R, rates)
