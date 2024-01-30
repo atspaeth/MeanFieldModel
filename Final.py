@@ -44,7 +44,7 @@ dt = 0.1
 R, rates = firing_rates(T=T, eta=eta, q=q, dt=dt, model="iaf_psc_delta", sigma_max=10.0)
 
 sub = R <= R[-1] / 2
-tfs = dict(Sigmoid=sigmoid, ReLU=relu, SoftPlus=softplus_ref)
+tfs = {"Sigmoid": sigmoid, "ReLU": relu, "Refractory SoftPlus": softplus_ref}
 x = R / 1e4
 
 with figure("02 Refractory Softplus Extrapolation") as f:
@@ -63,7 +63,7 @@ with figure("02 Refractory Softplus Extrapolation") as f:
     ax1.set_xticks([])
     ax1.legend(ncol=2, loc="lower right")
     ax2.set_xlabel("Mean Rate of $10^4$ Presynaptic Neurons (Hz)")
-    ax2.set_ylabel("Error (Hz)")
+    ax2.set_ylabel("Difference from\nAnalytical (Hz)")
     lim = ax2.get_ylim()[1]
     ax2.set_ylim(-lim - 10, lim)
 
@@ -120,8 +120,8 @@ with figure("03 Consistency Condition") as f:
             ax.plot(unstables, unstables, "ko", fillstyle="none")
 
     ax.set_yticks(ax.get_xticks())
-    ax.set_xlabel("Input Firing Rate (Hz)")
-    ax.set_ylabel("Output Firing Rate (Hz)")
+    ax.set_xlabel("Presynaptic Firing Rate (Hz)")
+    ax.set_ylabel("Postsynaptic Firing Rate (Hz)")
 
     ax.plot([], [], "ko", fillstyle="right", label="Fixed Point")[0]
     ax.legend()
