@@ -1,7 +1,7 @@
 # Final Figures
 #
 # This script generates all the figures from our new manuscript
-# ``Model-agnostic neural mean-field models with the Refractory SoftPlus
+# ``Model-agnostic neural mean-field with the Refractory SoftPlus
 # transfer function''
 from itertools import zip_longest
 
@@ -454,6 +454,18 @@ run_args = dict(
     connectivity=RandomConnectivity(N, eta, q, delay),
 )
 
+def oufit(X, h):
+    """
+    Perform a maximum-likelihood fit of the parameters of an OU
+    process to the increments of a time series X with time step h.
+    Returns just the process's sigma because the other ones aren't
+    interesting at all.
+    """
+    dX = np.diff(X)
+    a, b = np.polyfit(X[:-1], dX, 1)
+    eps = dX - a * X[:-1] - b
+    return np.std(eps) * np.sqrt(h)
+
 mean, std = [], []
 with tqdm(total=10 * sum(Ms), unit="neuron") as pbar:
     for M in Ms:
@@ -462,8 +474,7 @@ with tqdm(total=10 * sum(Ms), unit="neuron") as pbar:
         for i in range(10):
             _, sd = firing_rates(**run_args, M=M, seed=1234 + i, cache=M > 10000)
             mean[-1].append(sd.rates("Hz").mean())
-            trate = sd.binned(1) / M / 1e-3
-            std[-1].append(trate.std())
+            std[-1].append(oufit(sd.binned(1) / M / 1e-3, 1.0))
             pbar.update(M)
 
 mean = np.array(mean)
@@ -493,11 +504,13 @@ with figure("07 Finite Size Effects", figsize=[4.5, 3.0]) as f:
     axes["B"].set_xlabel("Number of Neurons")
     axes["B"].set_ylabel("Firing Rate (Hz)")
 
+    # Plot the fitted OU sigma, and the best-fit square root law.
     sm, ss = std.mean(1), std.std(1)
+    k = np.mean(sm * np.sqrt(Ms))
     axes["C"].semilogx(Ms, sm, label="Simulation")
     axes["C"].fill_between(Ms, sm - ss, sm + ss, alpha=0.5)
     axes["C"].plot([], [], "grey", label="Model")
-    axes["C"].plot(Ms, 500 / np.sqrt(Ms), "k:", label="Square Root Law")
+    axes["C"].plot(Ms, k / np.sqrt(Ms), "k:", label="Square Root Law")
     axes["C"].legend()
     axes["C"].set_xlabel("Number of Neurons")
     axes["C"].set_ylabel("F.R. Variation (Hz)")
@@ -645,7 +658,7 @@ with figure("08 Sinusoid Following", figsize=[4, 3]) as f:
     axes = f.subplots(3, 2)
     for i, model in enumerate(model_names):
         color = f"C{i}"
-        for j, ax in enumerate(axes[i,:]):
+        for j, ax in enumerate(axes[i, :]):
             tt, true, tp, pred = eg_results[model][j]
             ax.plot(tt, true, color)
             ax.plot(tp, pred, "k")
@@ -654,15 +667,15 @@ with figure("08 Sinusoid Following", figsize=[4, 3]) as f:
                 ax.set_xlabel("Time (ms)")
             else:
                 ax.set_xticks([])
-        ytop = max(axes[i,j].get_ylim()[1] for j in range(2))
-        axes[i,0].set_ylim(0, ytop)
-        axes[i,1].set_ylim(0, ytop)
-        axes[i,1].set_yticks([])
-    axes[0,0].set_title("10 kHz ± 5 kHz")
-    axes[0,1].set_title("10 kHz ± 10 kHz")
-    axes[0,0].set_ylabel("LIF F.R. (Hz)")
-    axes[1,0].set_ylabel("Izh. F.R. (Hz)")
-    axes[2,0].set_ylabel("HH F.R. (Hz)")
+        ytop = max(axes[i, j].get_ylim()[1] for j in range(2))
+        axes[i, 0].set_ylim(0, ytop)
+        axes[i, 1].set_ylim(0, ytop)
+        axes[i, 1].set_yticks([])
+    axes[0, 0].set_title("10 kHz ± 5 kHz")
+    axes[0, 1].set_title("10 kHz ± 10 kHz")
+    axes[0, 0].set_ylabel("LIF F.R. (Hz)")
+    axes[1, 0].set_ylabel("Izh. F.R. (Hz)")
+    axes[2, 0].set_ylabel("HH F.R. (Hz)")
     f.align_ylabels()
 
 
