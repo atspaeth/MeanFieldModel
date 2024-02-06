@@ -173,15 +173,18 @@ with tqdm(total=len(model_names) * len(Msubs)) as pbar:
 
 Tsubs = np.geomspace(1000, Tmax, num=100)
 residuals_T = {m: [] for m in model_names}
+subset_err_T = {m: [] for m in model_names}
 with tqdm(total=len(model_names) * len(Tsubs)) as pbar:
     for m in model_names:
         R, sd = firing_rates(
             model=m, q=q, dt=dt, T=Tmax, M=M, sigma_max=sigma_max, return_times=True
         )
+        rates = sd.rates("Hz")
         for Tsub in Tsubs:
             rsub = sd.subtime(0, Tsub).rates("Hz")
             rfit = fitted_curve(softplus_ref, R, rsub)(R)
-            residuals_T[m].append(norm_err(sd.rates("Hz"), rfit))
+            residuals_T[m].append(norm_err(rates, rfit))
+            subset_err_T[m].append(norm_err(rates, rsub))
             pbar.update(1)
 
 with figure("04 Convergence") as f:
@@ -209,6 +212,15 @@ with figure("04 Convergence") as f:
     byT.set_ylim(byM.get_ylim())
 
     byM.legend(loc="lower right")
+
+
+for m in model_names:
+    is_better = np.less(residuals_T[m], subset_err_T[m])
+    i = np.nonzero(is_better)[0][-1]
+    T = Tsubs[i] / 1e3
+    err = residuals_T[m][i]
+    worst_rel_err = subset_err_T[m][0] / residuals_T[m][0]
+    print(f"{m} crossover at {T=:.1e}s: {err=:.2e}, worst", worst_rel_err)
 
 
 # %%
@@ -454,6 +466,7 @@ run_args = dict(
     connectivity=RandomConnectivity(N, eta, q, delay),
 )
 
+
 def oufit(X, h):
     """
     Perform a maximum-likelihood fit of the parameters of an OU
@@ -465,6 +478,7 @@ def oufit(X, h):
     a, b = np.polyfit(X[:-1], dX, 1)
     eps = dX - a * X[:-1] - b
     return np.std(eps) * np.sqrt(h)
+
 
 mean, std = [], []
 with tqdm(total=10 * sum(Ms), unit="neuron") as pbar:
