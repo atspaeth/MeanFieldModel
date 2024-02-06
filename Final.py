@@ -808,3 +808,50 @@ with figure(
     err.set_xlabel("$q$ (mV)")
     err.zaxis.set_major_formatter(plt.matplotlib.ticker.PercentFormatter(decimals=0))
     err.set_xticks([-1, 0, 1], ["0.1", "1", "10"])
+
+
+# %%
+# Figure S3
+# =========
+# Variance in the firing rate estimate as a function of the time used to
+# calculate that estimate, compared to the theoretical value.
+
+dt = 0.1
+q = 1.0
+T = 1e7
+N_per_input = 50
+
+inputs = np.linspace(1e4, 4e4, 4)
+R_in, sd = firing_rates(
+    "iaf_psc_delta",
+    M=len(inputs) * N_per_input,
+    dt=dt,
+    q=q,
+    R_max=np.repeat(inputs, N_per_input),
+    T=T,
+    uniform_input=True,
+    return_times=True,
+)
+
+Tsubs = np.geomspace(1000, T, num=21)
+stds = [[] for _ in inputs]
+for Tsub in Tsubs:
+    rates = sd.subtime(0, Tsub).rates("Hz")
+    for i in range(len(inputs)):
+        this_rates = rates[i * N_per_input : (i + 1) * N_per_input]
+        stds[i].append(this_rates.std())
+
+means = [
+    np.mean(rates[i * N_per_input : (i + 1) * N_per_input]) for i in range(len(inputs))
+]
+
+Tsec = Tsubs / 1e3
+with figure("S3 Estimate Variance") as f:
+    ax = f.gca()
+    for i, R in enumerate(inputs):
+        label = f"$R = \\qty{{{R/1e3:.0f}}}{{kHz}}$"
+        ax.loglog(Tsec, stds[i], f"C{i}o", ms=4, label=label)
+        ax.loglog(Tsec, np.sqrt(means[i] / Tsec), f"C{i}-")
+    ax.set_xlabel("Time Used for Estimate (s)")
+    ax.set_ylabel("Standard Deviation (Hz)")
+    ax.legend()
