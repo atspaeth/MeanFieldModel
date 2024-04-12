@@ -476,23 +476,32 @@ def oufit(X, h):
     """
     dX = np.diff(X)
     a, b = np.polyfit(X[:-1], dX, 1)
+    theta = -h / a
+    mu = theta * b / h
     eps = dX - a * X[:-1] - b
-    return np.std(eps) * np.sqrt(h)
+    return np.std(eps) * np.sqrt(h), theta, mu
 
 
-mean, std = [], []
+mean, std, thetas, mus = [], [], [], []
 with tqdm(total=10 * sum(Ms), unit="neuron") as pbar:
     for M in Ms:
         mean.append([])
         std.append([])
+        thetas.append([])
+        mus.append([])
         for i in range(10):
             _, sd = firing_rates(**run_args, M=M, seed=1234 + i, cache=M > 10000)
             mean[-1].append(sd.rates("Hz").mean())
-            std[-1].append(oufit(sd.binned(1) / M / 1e-3, 1.0))
+            sigma, theta, mu, goodness = oufit(sd.binned(1) / M / 1e-3, 1.0)
+            std[-1].append(sigma)
+            thetas[-1].append(theta)
+            mus[-1].append(mu)
             pbar.update(M)
 
 mean = np.array(mean)
 std = np.array(std)
+mus = np.array(mus)
+thetas = np.array(thetas)
 
 # The model predicted value of `mean` is `theo`
 R, rates = firing_rates(model, q, eta=eta, dt=dt, T=1e5, M=100, sigma_max=10.0)
