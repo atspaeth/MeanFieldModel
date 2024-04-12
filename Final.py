@@ -599,8 +599,7 @@ for M, s, sa in zip_longest(Ms, stability, stability_aa, fillvalue=1):
 # Figure 8
 # ========
 # Demonstrating modeling the dynamics appropriately and inappropriately via
-# a few examples of the model behavior, and a graph of diverging error with
-# increasing fraction of the input which is recurrent.
+# a few simple examples of the model behavior.
 
 eta = 0.8
 q = 3.0
@@ -615,7 +614,7 @@ warmup_bins = 10
 warmup_ms = warmup_bins * bin_size_ms
 
 
-def sim_sinusoid(model, N, amp, **kwargs):
+def sim_sinusoid(model, *, N, amp=1e3, freq=1.0, **kwargs):
     delay = 1.0 + nest.random.uniform_int(10)
     t = np.arange(0, T, bin_size_ms)
     return t, firing_rates(
@@ -629,17 +628,17 @@ def sim_sinusoid(model, N, amp, **kwargs):
         uniform_input=True,
         R_max=Rb,
         osc_amplitude=amp,
-        osc_frequency=1.0,
+        osc_frequency=freq,
         cache=False,
         progress_interval=None,
         **kwargs,
     )[1].binned(bin_size_ms)[warmup_bins:] / (M / 1e3 * bin_size_ms)
 
 
-def mf_sinusoid(N, amp, tf):
+def mf_sinusoid(tf, *, N, amp=1e3, freq=1.0):
     last_r, r_pred = 0.0, []
     t_full = np.arange(-3 * tau, T)
-    r_inputs = Rb + amp * np.sin(2 * np.pi * (t_full + warmup_ms) / 1e3)
+    r_inputs = Rb + amp * np.sin(2e-3 * np.pi * freq * (t_full + warmup_ms))
     for i, r_input in enumerate(r_inputs):
         r_star = tf(r_input + N * last_r)
         rdot = (r_star - last_r) / tau
@@ -662,10 +661,10 @@ for model, conds in sin_egs.items():
     )
     tf = fitted_curve(softplus_ref, R, rates)
     eg_results[model] = []
-    for cond in conds:
-        true = sim_sinusoid(model, *cond)
-        pred = mf_sinusoid(*cond, tf)
-        eg_results[model].append(true + pred)
+    for N, amp in conds:
+        tt, true = sim_sinusoid(model, N=N, amp=amp)
+        tp, pred = mf_sinusoid(tf, N=N, amp=amp)
+        eg_results[model].append((tt, true, tp, pred))
 
 
 with figure("08 Sinusoid Following", figsize=[4, 3]) as f:
