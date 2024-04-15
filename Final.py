@@ -446,10 +446,10 @@ model = "iaf_psc_delta"
 Rb = 10e3
 q = 3.0
 N = 75
+reps = 10
 
 Ms = np.geomspace(100, 100000, num=31, dtype=int)
 
-delay = 1.0 + nest.random.uniform_int(10)
 run_args = dict(
     model=model,
     q=q,
@@ -463,7 +463,7 @@ run_args = dict(
     uniform_input=True,
     progress_interval=None,
     return_times=True,
-    connectivity=RandomConnectivity(N, eta, q, delay),
+    connectivity=RandomConnectivity(N, eta, q, delay=dt),
 )
 
 
@@ -482,26 +482,23 @@ def oufit(X, h):
     return np.std(eps) * np.sqrt(h), theta, mu
 
 
-mean, std, thetas, mus = [], [], [], []
+# Gather the actual firing data for all the simulations at once.
+sdses = []
 with tqdm(total=10 * sum(Ms), unit="neuron") as pbar:
     for M in Ms:
-        mean.append([])
-        std.append([])
-        thetas.append([])
-        mus.append([])
-        for i in range(10):
+        sdses.append([])
+        for i in range(reps):
             _, sd = firing_rates(**run_args, M=M, seed=1234 + i, cache=M > 10000)
-            mean[-1].append(sd.rates("Hz").mean())
-            sigma, theta, mu, goodness = oufit(sd.binned(1) / M / 1e-3, 1.0)
-            std[-1].append(sigma)
-            thetas[-1].append(theta)
-            mus[-1].append(mu)
+            sdses[-1].append(sd)
             pbar.update(M)
 
-mean = np.array(mean)
-std = np.array(std)
-mus = np.array(mus)
-thetas = np.array(thetas)
+# Now calculate the stats for each rep for each M (two levels).
+ou_params = [
+    [oufit(sd.binned(1) / M / 1e-3, 1.0) for sd in sds] for sds, M in zip(sdses, Ms)
+]
+std = np.array([[sigma for sigma, _, _ in p] for p in ou_params])
+thetas = np.array([[theta for _, theta, _ in p] for p in ou_params])
+mus = np.array([[mu for _, _, mu in p] for p in ou_params])
 
 # The model predicted value of `mean` is `theo`
 R, rates = firing_rates(model, q, eta=eta, dt=dt, T=1e5, M=100, sigma_max=10.0)
@@ -509,9 +506,9 @@ tf = fitted_curve(softplus_ref, R, rates)
 F, Finv = parametrized_F_Finv(tf.p, Rb, N, q)
 [theo], () = find_fps(40, F, Finv)
 
-# Hang on to an example run with smallish M for the figure.
-_, sd = firing_rates(**run_args, M=1000, cache=False)
-trate = sd.binned(1) / 1000 / 1e-3
+# Hang on to an example run with smallish M (=1000) for the figure.
+sd = sdses[10][0]
+trate = sd.binned(1) / sd.N / 1e-3
 
 with figure("07 Finite Size Effects", figsize=[4.5, 3.0]) as f:
     axes = f.subplot_mosaic("AA\nBC", height_ratios=[1, 2])
@@ -521,8 +518,8 @@ with figure("07 Finite Size Effects", figsize=[4.5, 3.0]) as f:
     axes["A"].set_ylabel("Firing Rate (Hz)")
 
     axes["B"].axhline(theo, color="grey")
-    mm, ms = mean.mean(1), mean.std(1)
-    axes["B"].semilogx(Ms, mean.mean(1))
+    mm, ms = mus.mean(1), mus.std(1)
+    axes["B"].semilogx(Ms, mm)
     axes["B"].fill_between(Ms, mm - ms, mm + ms, alpha=0.5)
     axes["B"].set_xlabel("Number of Neurons")
     axes["B"].set_ylabel("Firing Rate (Hz)")
