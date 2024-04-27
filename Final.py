@@ -471,17 +471,23 @@ run_args = dict(
 
 def oufit(X, h):
     """
-    Perform a maximum-likelihood fit of the parameters of an OU
-    process to the increments of a time series X with time step h.
-    Returns just the process's sigma because the other ones aren't
-    interesting at all.
+    Perform a maximum-likelihood fit of the parameters of an OU process to the
+    increments of a time series X with time step h. The process is given by
+
+        dX = theta * (mu - X) * h + sigma * dW
+
+    where dW is a Wiener increment. Fitting is carried out by using linear regression to
+    estimate the parameters of an AR(1) process (and the scale of its residuals), then
+    converting them to the parameters of the OU process. The advantage of the OU process
+    over just using the AR(1) process is that it's supposed to be timestep-invariant
+    because it's continuous. I'm not sure whether that actually holds in practice.
     """
     dX = np.diff(X)
     a, b = np.polyfit(X[:-1], dX, 1)
     theta = -h / a
     mu = theta * b / h
     eps = dX - a * X[:-1] - b
-    return np.std(eps) * np.sqrt(h), theta, mu
+    return np.std(eps) / np.sqrt(h), theta, mu
 
 
 # Gather the actual firing data for all the simulations at once.
