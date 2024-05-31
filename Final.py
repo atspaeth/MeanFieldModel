@@ -46,7 +46,7 @@ R, rates = firing_rates(T=T, eta=eta, q=q, dt=dt, model="iaf_psc_delta", sigma_m
 
 sub = R <= R[-1] / 2
 tfs = {"Sigmoid": sigmoid, "ReLU": relu, "Refractory SoftPlus": softplus_ref}
-x = R / 1e4
+x = R / 1e3
 
 with figure("02 Refractory Softplus Extrapolation") as f:
     ax1, ax2 = f.subplots(2, 1)
@@ -63,14 +63,16 @@ with figure("02 Refractory Softplus Extrapolation") as f:
     ax1.set_ylabel("Firing Rate (Hz)")
     ax1.set_xticks([])
     ax1.legend(ncol=2, loc="lower right")
-    ax2.set_xlabel("Mean Rate of $10^4$ Presynaptic Neurons (Hz)")
+    ax2.set_xlabel("Total Rate of Presynaptic Neurons (kHz)")
     ax2.set_ylabel("Difference from\nAnalytical (Hz)")
     lim = ax2.get_ylim()[1]
     ax2.set_ylim(-lim - 10, lim)
 
     # Mark the boundary between training and extrapolation data.
-    ax2.axvline(5, color="k", lw=0.75)
-    ax1.axvline(5, color="k", lw=0.75)
+    i = np.diff(sub).argmax()
+    xi = (x[i] + x[i + 1]) / 2
+    ax2.axvline(xi, color="k", lw=0.75)
+    ax1.axvline(xi, color="k", lw=0.75)
     f.align_ylabels([ax1, ax2])
 
 
