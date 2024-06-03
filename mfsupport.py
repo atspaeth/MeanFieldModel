@@ -12,22 +12,8 @@ from tqdm import tqdm
 nest.set_verbosity("M_WARNING")
 
 
-def _softplus(arg):
-    """
-    Just the freaky nonlinear part of softplus, implementing
-    a large-argument correction.
-    """
-    ret = np.array(arg, float)
-    if len(ret.shape) > 0:
-        nonlinear = ret < 20
-        ret[nonlinear] = np.log1p(np.exp(ret[nonlinear]))
-        return ret
-    else:
-        return _softplus([arg])[0]
-
-
 def _softplus_inv(ret):
-    "Inverse of _softplus()"
+    "Inverse softplus, solving ret = np.logaddexp(0, x)"
     arg = np.array(ret, float)
     if len(arg.shape) > 0:
         nonlinear = (0 < arg) & (arg < 20)
@@ -40,7 +26,7 @@ def _softplus_inv(ret):
 
 def softplus(Rs, x0, b, c):
     "The SoftPlus transfer function."
-    return c / b * _softplus(b * (np.sqrt(Rs) - x0))
+    return c / b * np.logaddexp(0, b * (np.sqrt(Rs) - x0))
 
 
 def softplus_inv(rs, x0, b, c):
@@ -66,7 +52,7 @@ def softplus_ref(Rs, x0, b, c, t_ref):
 def softplus_ref_q_dep(Rs_and_qs, x0, b, c, d, t_ref):
     "Refractory Softplus with q dependence incorporated in beta."
     Rs, qs = Rs_and_qs
-    fr = c / b * _softplus(b * (1 + d * qs) * (qs * np.sqrt(Rs) - x0))
+    fr = c / b * np.logaddexp(0, b * (1 + d * qs) * (qs * np.sqrt(Rs) - x0))
     return _refractory(fr, t_ref)
 
 
