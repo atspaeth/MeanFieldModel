@@ -9,6 +9,7 @@ from itertools import zip_longest
 import matplotlib.pyplot as plt
 import nest
 import numpy as np
+from scipy import optimize
 from tqdm import tqdm
 
 from mfsupport import (AnnealedAverageConnectivity, RandomConnectivity, figure,
@@ -472,32 +473,6 @@ run_args = dict(
 )
 
 
-def binned_rates(sd):
-    factor = sd.N * bin_size_sec
-    return sd.binned(bin_size_ms) / factor
-
-
-def oufit(X, h):
-    """
-    Perform a maximum-likelihood fit of the parameters of an OU process to the
-    increments of a time series X with time step h. The process is given by
-
-        dX = theta * (mu - X) * h + sigma * dW
-
-    where dW is a Wiener increment. Fitting is carried out by using linear regression to
-    estimate the parameters of an AR(1) process (and the scale of its residuals), then
-    converting them to the parameters of the OU process. The advantage of the OU process
-    over just using the AR(1) process is that it's supposed to be timestep-invariant
-    because it's continuous. I'm not sure whether that actually holds in practice.
-    """
-    dX = np.diff(X)
-    a, b = np.polyfit(X[:-1], dX, 1)
-    theta = -h / a
-    mu = theta * b / h
-    eps = dX - a * X[:-1] - b
-    return np.std(eps) / np.sqrt(h), theta, mu
-
-
 # Gather the actual firing data for all the simulations at once.
 sdses = []
 with tqdm(total=10 * sum(Ms), unit="neuron") as pbar:
@@ -508,13 +483,18 @@ with tqdm(total=10 * sum(Ms), unit="neuron") as pbar:
             sdses[-1].append(sd)
             pbar.update(M)
 
+
+@np.vectorize(signature="(),()->(n)", excluded="bin_size_ms")
+def binned_rates(sd, bin_size_ms):
+    factor = sd.N * bin_size_ms / 1e3
+    return sd.binned(bin_size_ms) / factor
+
+
 # Now calculate the stats for each rep for each M (two levels).
-bin_size_ms = 3.5
-bin_size_sec = bin_size_ms * 1e-3
-ou_params = [[oufit(binned_rates(sd), bin_size_ms) for sd in sds] for sds in sdses]
-std = np.array([[sigma for sigma, _, _ in p] for p in ou_params])
-thetas = np.array([[theta for _, theta, _ in p] for p in ou_params])
-mus = np.array([[mu for _, _, mu in p] for p in ou_params])
+bin_size_ms = 1.0
+all_bins = binned_rates(sdses, bin_size_ms)
+std = all_bins.std(-1)
+mean = all_bins.mean(-1)
 
 # The model predicted value of `mean` is `theo`
 R, rates = firing_rates(model, q, eta=eta, dt=dt, T=1e5, M=100, sigma_max=10.0)
@@ -523,8 +503,7 @@ F, Finv = parametrized_F_Finv(tf.p, Rb, N, q)
 [theo], () = find_fps(40, F, Finv)
 
 # Hang on to an example run with smallish M (=1000) for the figure.
-sd = sdses[10][0]
-trate = sd.binned(bin_size_ms) / sd.N / bin_size_sec
+trate = binned_rates(sdses[10][0], bin_size_ms)
 
 with figure("07 Finite Size Effects", figsize=[4.5, 3.0]) as f:
     axes = f.subplot_mosaic("AA\nBC", height_ratios=[1, 2])
@@ -535,7 +514,7 @@ with figure("07 Finite Size Effects", figsize=[4.5, 3.0]) as f:
     axes["A"].set_ylabel("Firing Rate (Hz)")
 
     axes["B"].axhline(theo, color="grey")
-    mm, ms = mus.mean(1), mus.std(1)
+    mm, ms = mean.mean(1), mean.std(1)
     axes["B"].semilogx(Ms, mm)
     axes["B"].fill_between(Ms, mm - ms, mm + ms, alpha=0.5)
     axes["B"].set_xlabel("Number of Neurons")
@@ -543,7 +522,7 @@ with figure("07 Finite Size Effects", figsize=[4.5, 3.0]) as f:
 
     # Plot the fitted OU sigma, and the best-fit square root law.
     sm, ss = std.mean(1), std.std(1)
-    k = np.mean(sm * np.sqrt(Ms))
+    k = optimize.curve_fit(lambda xs, k: k / np.sqrt(xs), Ms, sm)[0].item()
     axes["C"].semilogx(Ms, sm, label="Simulation")
     axes["C"].fill_between(Ms, sm - ss, sm + ss, alpha=0.5)
     axes["C"].plot([], [], "grey", label="Model")
