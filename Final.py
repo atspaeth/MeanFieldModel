@@ -453,7 +453,8 @@ reps = 10
 
 Ms = np.geomspace(100, 100000, num=31, dtype=int)
 
-delay = dt + nest.random.uniform(1 - dt)
+# Use only integer delays to avoid running into timestep problems.
+delay = 1 + nest.random.uniform_int(10)
 run_args = dict(
     model=model,
     q=q,
@@ -469,6 +470,11 @@ run_args = dict(
     return_times=True,
     connectivity=RandomConnectivity(N, eta, q, delay=delay),
 )
+
+
+def binned_rates(sd):
+    factor = sd.N * bin_size_sec
+    return sd.binned(bin_size_ms) / factor
 
 
 def oufit(X, h):
@@ -505,10 +511,7 @@ with tqdm(total=10 * sum(Ms), unit="neuron") as pbar:
 # Now calculate the stats for each rep for each M (two levels).
 bin_size_ms = 3.5
 bin_size_sec = bin_size_ms * 1e-3
-ou_params = [
-    [oufit(sd.binned(bin_size_ms) / M / bin_size_sec, bin_size_ms) for sd in sds]
-    for sds, M in zip(sdses, Ms)
-]
+ou_params = [[oufit(binned_rates(sd), bin_size_ms) for sd in sds] for sds in sdses]
 std = np.array([[sigma for sigma, _, _ in p] for p in ou_params])
 thetas = np.array([[theta for _, theta, _ in p] for p in ou_params])
 mus = np.array([[mu for _, _, mu in p] for p in ou_params])
