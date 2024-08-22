@@ -615,25 +615,31 @@ warmup_bins = 10
 warmup_ms = warmup_bins * bin_size_ms
 
 
-def sim_sinusoid(model, *, N, amp=1e3, freq=1.0, **kwargs):
+def sim_sinusoid(model, seeds=10, *, N, amp=1e3, freq=1.0, **kwargs):
     delay = 1.0 + nest.random.uniform_int(10)
     t = np.arange(0, T, bin_size_ms)
-    return t, firing_rates(
-        model=model,
-        q=q,
-        M=M,
-        T=T + warmup_ms,
-        dt=dt,
-        connectivity=RandomConnectivity(N, eta, q, delay=delay),
-        return_times=True,
-        uniform_input=True,
-        R_max=Rb,
-        osc_amplitude=amp,
-        osc_frequency=freq,
-        cache=False,
-        progress_interval=None,
-        **kwargs,
-    )[1].binned(bin_size_ms)[warmup_bins:] / (M / 1e3 * bin_size_ms)
+    trates = [
+        firing_rates(
+            model=model,
+            q=q,
+            M=M,
+            T=T + warmup_ms,
+            dt=dt,
+            connectivity=RandomConnectivity(N, eta, q, delay=delay),
+            return_times=True,
+            uniform_input=True,
+            R_max=Rb,
+            osc_amplitude=amp,
+            osc_frequency=freq,
+            cache=False,
+            progress_interval=None,
+            seed=1234 + i,
+            **kwargs,
+        )[1].binned(bin_size_ms)[warmup_bins:]
+        / (M / 1e3 * bin_size_ms)
+        for i in range(seeds)
+    ]
+    return t, np.mean(trates, 0)
 
 
 def mf_sinusoid(tf, *, N, amp=1e3, freq=1.0):
