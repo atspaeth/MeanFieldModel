@@ -3,7 +3,6 @@
 # This script generates all the figures from our new manuscript
 # ``Model-agnostic neural mean-field with the Refractory SoftPlus
 # transfer function''
-import collections
 from itertools import zip_longest
 
 import matplotlib.pyplot as plt
@@ -606,6 +605,7 @@ for M, s, sa in zip_longest(Ms, stability, stability_aa, fillvalue=1):
 eta = 0.8
 q = 3.0
 dt = 0.1
+tau = 1.0
 Rb = 10e3
 
 M = 1000
@@ -636,47 +636,16 @@ def sim_sinusoid(model, *, N, amp=1e3, freq=1.0, **kwargs):
     )[1].binned(bin_size_ms)[warmup_bins:] / (M / 1e3 * bin_size_ms)
 
 
-def mf_sinusoid(tf, *, N, amp=1e3, freq=1.0, dt=1.0, tau=2.0, T_s=0.0):
-    """
-    Use the stochastic population rate model to generate a possible realization of the
-    population-level response to a sinusoidal input.
-
-    The firing rate target is a combination of components for the instantaneous current
-    input and a population rate estimate. That estimate is double-filtered: a box with
-    a duration T_s, followed by an exponential with time constant tau.
-
-    By default, just use the exponential moving average filter. The box filter is an
-    experimental idea that is probably theoretically justified by the uniform axonal
-    delay, but doesn't actually provide any benefit and precludes analytical analysis
-    because the process is no longer Markovian.
-    """
-    # Time, inputs, and outputs.
-    t_full = np.arange(-3 * tau, T, dt)
+def mf_sinusoid(tf, *, N, amp=1e3, freq=1.0):
+    last_r, r_pred = 0.0, []
+    t_full = np.arange(-3 * tau, T)
     r_inputs = Rb + amp * np.sin(2e-3 * np.pi * freq * (t_full + warmup_ms))
-    times = []
-    # Two state variables: the synaptic variable and the spike buffer.
-    s = 0.0
-    # Store the last T_s/dt values of n in a ring buffer. If no buffer is requested,
-    # keep the same code path, just use length 1.
-    n_buffer = collections.deque(maxlen=int(T_s / dt) or 1)
-
-    for t, r_input in zip(t_full, r_inputs):
-        # Use the TF to get firing probability and then spike count.
-        p = tf(r_input + N * s) * dt / 1e3
-        n = np.random.binomial(M, p)
-        n_buffer.append(n)
-        # Update the synaptic variable to make a poprate estimate. It's an exponential
-        # moving average with time constant tau of a box-filter moving average estimate
-        # of the population rate.
-        r_est = np.mean(n_buffer) * 1e3 / dt / M
-        s += (r_est - s) * dt / tau
-        # Calculate actual spike times so they can be divvied up later.
-        times.extend(t + np.random.rand(n) * dt)
-
-    # Split up the spikes into bins of the same size as the simulation.
-    bins = np.arange(0, T + bin_size_ms, bin_size_ms)
-    r_pred = np.histogram(times, bins=bins)[0] * 1e3 / bin_size_ms / M
-    return bins[:-1], r_pred
+    for i, r_input in enumerate(r_inputs):
+        r_star = tf(r_input + N * last_r)
+        rdot = (r_star - last_r) / tau
+        last_r += rdot  # here dt is 1 ms
+        r_pred.append(last_r)
+    return t_full[t_full >= 0], np.array(r_pred)[t_full >= 0]
 
 
 sin_egs = {model: [(50, 5e3), (50, 10e3)] for model in model_names}
