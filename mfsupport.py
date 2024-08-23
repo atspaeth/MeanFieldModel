@@ -285,7 +285,8 @@ def sim_neurons_nest_eta(
 
     if recordables:
         params = dict(record_from=recordables, interval=dt)
-        nest.Connect(nest.Create("multimeter", params=params), neurons)
+        meter = nest.Create("multimeter", params=params)
+        nest.Connect(meter, neurons)
 
     with sim_progress(T + warmup_time, progress_interval) as pbar:
         # During warmup time, ramp the rate of the excitatory noise from
@@ -312,7 +313,7 @@ def sim_neurons_nest_eta(
 
     # Create SpikeData and trim off the warmup time.
     return ba.SpikeData.from_nest(
-        rec, neurons, length=T + warmup_time, metadata=rec.events if recordables else {}
+        rec, neurons, length=T + warmup_time, metadata=meter.events if recordables else {}
     ).subtime(warmup_time, ...)
 
 
