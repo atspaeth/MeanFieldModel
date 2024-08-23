@@ -599,8 +599,9 @@ for M, s, sa in zip_longest(Ms, stability, stability_aa, fillvalue=1):
 # %%
 # Figure 8
 # ========
-# Demonstrating modeling the dynamics appropriately and inappropriately via
-# a few simple examples of the model behavior.
+# Demonstrating modeling the dynamics appropriately and inappropriately via a few simple
+# examples of the model behavior.Also plot the error of each model as a function of the
+# frequency, so the top 3 rows are examples and the bottom row sumamrizes.
 
 eta = 0.8
 q = 3.0
@@ -612,6 +613,9 @@ T = 2e3
 bin_size_ms = 10.0
 warmup_bins = 10
 warmup_ms = warmup_bins * bin_size_ms
+
+seeds = 100
+freqs_Hz = np.geomspace(0.01, 10, num=51)
 
 
 def sim_mean_sinusoid(model, seeds=1, *, pbar=None, N, amp=1e3, freq=1.0, **kwargs):
@@ -656,28 +660,41 @@ def mf_sinusoid(tf, *, N, amp=1e3, freq=1.0, tau=1.0):
     return t_full[t_full >= 0], np.array(r_pred)[t_full >= 0]
 
 
-sin_egs = {model: [(50, 5e3), (50, 10e3)] for model in model_names}
-
+# The 6 simple examples that you can actually look at.
 eg_results = {}
-for model, conds in sin_egs.items():
-    R, rates = firing_rates(
-        model=model,
-        eta=eta,
-        q=q,
-        dt=dt,
-        T=1e5,
-        sigma_max=10.0,
-    )
-    tf = fitted_curve(softplus_ref, R, rates)
-    eg_results[model] = []
-    for N, amp in conds:
-        tt, true = sim_mean_sinusoid(model, N=N, amp=amp)
-        tp, pred = mf_sinusoid(tf, N=N, amp=amp)
-        eg_results[model].append((tt, true, tp, pred))
+conds = [(50, 5e3), (50, 10e3)]
+with tqdm(total=len(model_names) * len(conds)) as pbar:
+    for model in model_names:
+        R, rates = firing_rates(model=model, eta=eta, q=q, dt=dt, T=1e5, sigma_max=10.0)
+        tf = fitted_curve(softplus_ref, R, rates)
+        eg_results[model] = []
+        for N, amp in conds:
+            tt, true = sim_mean_sinusoid(model, N=N, amp=amp, pbar=pbar)
+            tp, pred = mf_sinusoid(tf, N=N, amp=amp)
+            eg_results[model].append((tt, true, tp, pred))
+
+
+# Sweep the frequency for each of those examples for the bottom subfigure.
+eg_errs = [{} for cond in conds]
+with tqdm(total=len(model_names) * len(conds) * len(freqs_Hz)) as pbar:
+    for model in model_names:
+        R, rates = firing_rates(model=model, eta=eta, q=q, dt=dt, T=1e5, sigma_max=10.0)
+        tf = fitted_curve(softplus_ref, R, rates)
+        for i, (N, amp) in enumerate(conds):
+            eg_errs[i][model] = errs = []
+            for freq in freqs_Hz:
+                tt, true = sim_mean_sinusoid(model, N=N, amp=amp, freq=freq, pbar=pbar)
+                tp, pred = mf_sinusoid(tf, N=N, amp=amp, freq=freq)
+                # Bin the prediction values just like the true values for consistency.
+                pred = pred.reshape((-1, 10)).mean(1)
+                # Use RMS error to get results in units of firing rate.
+                errs.append(np.sqrt(((true - pred) ** 2).mean()))
 
 
 with figure("08 Sinusoid Following", figsize=[4, 3]) as f:
-    axes = f.subplots(3, 2)
+    axes = f.subplots(4, 2)
+
+    # The first three rows are filled in with examples from eg_results.
     for i, model in enumerate(model_names):
         color = f"C{i}"
         for j, ax in enumerate(axes[i, :]):
@@ -698,6 +715,14 @@ with figure("08 Sinusoid Following", figsize=[4, 3]) as f:
     axes[0, 0].set_ylabel("LIF F.R. (Hz)")
     axes[1, 0].set_ylabel("Izh. F.R. (Hz)")
     axes[2, 0].set_ylabel("HH F.R. (Hz)")
+
+    # The last row is filled in with error graphs from eg_errs.
+    for i, errs in enumerate(eg_errs):
+        for model, label in model_names.items():
+            axes[3, i].semilogx(freqs_Hz, errs[model], label=label)
+        axes[3, i].set_xlabel("Input Oscillation Frequency (Hz)")
+    axes[3, 0].set_ylabel("Average RMS Error")
+    axes[3, 0].legend()
     f.align_ylabels()
 
 
@@ -875,7 +900,7 @@ model = "iaf_psc_delta"
 N = 50
 amp = 5e3
 
-seeds = 10
+seeds = 100
 freqs_Hz = np.geomspace(0.01, 10, num=51)
 taus = [1, 2, 5, 10]
 errs = np.zeros((len(taus), len(freqs_Hz)))
@@ -892,13 +917,13 @@ with tqdm(total=len(freqs_Hz) * seeds) as pbar:
             # Bin the prediction values just like the true values for consistency.
             pred = pred.reshape((-1, 10)).mean(1)
             # Use RMS error to get results in units of firing rate.
-            errs[i,j] = np.sqrt(((true - pred) ** 2).mean())
+            errs[i, j] = np.sqrt(((true - pred) ** 2).mean())
 
 
 with figure("S4 Sinusoid Error") as f:
     ax = f.gca()
     for i, tau in enumerate(taus):
-        ax.semilogx(freqs_Hz, errs[i,:], label=f'$\\tau={tau}\,\\text{{ms}}$')
+        ax.semilogx(freqs_Hz, errs[i, :], label=f"$\\tau={tau}\,\\text{{ms}}$")
     ax.legend()
     ax.set_xlabel("Input Oscillation Frequency (Hz)")
     ax.set_ylabel("Average RMS Error")
