@@ -674,27 +674,32 @@ with tqdm(total=len(model_names) * len(conds)) as pbar:
             eg_results[model].append((tt, true, tp, pred))
 
 
-# Sweep the frequency for each of those examples for the bottom subfigure.
-eg_errs = [{} for cond in conds]
-with tqdm(total=len(model_names) * len(conds) * len(freqs_Hz)) as pbar:
+# Sweep the frequency for the straightforward example.
+N, amp = conds[0]
+eg_errs = {}
+with tqdm(total=len(model_names) * len(freqs_Hz) * seeds) as pbar:
     for model in model_names:
         R, rates = firing_rates(model=model, eta=eta, q=q, dt=dt, T=1e5, sigma_max=10.0)
         tf = fitted_curve(softplus_ref, R, rates)
-        for i, (N, amp) in enumerate(conds):
-            eg_errs[i][model] = errs = []
-            for freq in freqs_Hz:
-                tt, true = sim_mean_sinusoid(model, N=N, amp=amp, freq=freq, pbar=pbar)
-                tp, pred = mf_sinusoid(tf, N=N, amp=amp, freq=freq)
-                # Bin the prediction values just like the true values for consistency.
-                pred = pred.reshape((-1, 10)).mean(1)
-                # Use RMS error to get results in units of firing rate.
-                errs.append(np.sqrt(((true - pred) ** 2).mean()))
+        eg_errs[model] = errs = []
+        for freq in freqs_Hz:
+            tt, true = sim_mean_sinusoid(
+                model, seeds, N=N, amp=amp, freq=freq, pbar=pbar
+            )
+            tp, pred = mf_sinusoid(tf, N=N, amp=amp, freq=freq)
+            # Bin the prediction values just like the true values for consistency.
+            pred = pred.reshape((-1, 10)).mean(1)
+            # Use RMS error to get results in units of firing rate.
+            errs.append(np.sqrt(((true - pred) ** 2).mean()))
 
 
-with figure("08 Sinusoid Following", figsize=[4, 3]) as f:
-    axes = f.subplots(4, 2)
+with figure(
+    "08 Sinusoid Following", save_args={"bbox_inches": "tight"}, figsize=[5, 3]
+) as f:
+    egs, trends = f.subfigures(1, 2)
 
     # The first three rows are filled in with examples from eg_results.
+    axes = egs.subplots(3, 2, gridspec_kw=dict(hspace=0.1))
     for i, model in enumerate(model_names):
         color = f"C{i}"
         for j, ax in enumerate(axes[i, :]):
@@ -717,12 +722,12 @@ with figure("08 Sinusoid Following", figsize=[4, 3]) as f:
     axes[2, 0].set_ylabel("HH F.R. (Hz)")
 
     # The last row is filled in with error graphs from eg_errs.
-    for i, errs in enumerate(eg_errs):
-        for model, label in model_names.items():
-            axes[3, i].semilogx(freqs_Hz, errs[model], label=label)
-        axes[3, i].set_xlabel("Input Oscillation Frequency (Hz)")
-    axes[3, 0].set_ylabel("Average RMS Error")
-    axes[3, 0].legend()
+    ax = trends.subplots(1, 1, gridspec_kw=dict(hspace=0.1))
+    for model, label in model_names.items():
+        ax.semilogx(freqs_Hz, eg_errs[model], label=label)
+    ax.set_xlabel("Input Oscillation Frequency (Hz)")
+    ax.set_ylabel("Average RMS Error (Hz)")
+    ax.legend()
     f.align_ylabels()
 
 
