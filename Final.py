@@ -605,7 +605,6 @@ for M, s, sa in zip_longest(Ms, stability, stability_aa, fillvalue=1):
 eta = 0.8
 q = 3.0
 dt = 0.1
-tau = 1.0
 Rb = 10e3
 
 M = 1000
@@ -615,34 +614,37 @@ warmup_bins = 10
 warmup_ms = warmup_bins * bin_size_ms
 
 
-def sim_sinusoid(model, seeds=10, *, N, amp=1e3, freq=1.0, **kwargs):
+def sim_mean_sinusoid(model, seeds=1, *, pbar=None, N, amp=1e3, freq=1.0, **kwargs):
     delay = 1.0 + nest.random.uniform_int(10)
     t = np.arange(0, T, bin_size_ms)
-    trates = [
-        firing_rates(
-            model=model,
-            q=q,
-            M=M,
-            T=T + warmup_ms,
-            dt=dt,
-            connectivity=RandomConnectivity(N, eta, q, delay=delay),
-            return_times=True,
-            uniform_input=True,
-            R_max=Rb,
-            osc_amplitude=amp,
-            osc_frequency=freq,
-            cache=False,
-            progress_interval=None,
-            seed=1234 + i,
-            **kwargs,
-        )[1].binned(bin_size_ms)[warmup_bins:]
-        / (M / 1e3 * bin_size_ms)
-        for i in range(seeds)
-    ]
+    trates = []
+    for i in range(seeds):
+        trates.append(
+            firing_rates(
+                model=model,
+                q=q,
+                M=M,
+                T=T + warmup_ms,
+                dt=dt,
+                connectivity=RandomConnectivity(N, eta, q, delay=delay),
+                return_times=True,
+                uniform_input=True,
+                R_max=Rb,
+                osc_amplitude=amp,
+                osc_frequency=freq,
+                cache=False,
+                progress_interval=None,
+                seed=1234 + i,
+                **kwargs,
+            )[1].binned(bin_size_ms)[warmup_bins:]
+            / (M / 1e3 * bin_size_ms)
+        )
+        if pbar:
+            pbar.update()
     return t, np.mean(trates, 0)
 
 
-def mf_sinusoid(tf, *, N, amp=1e3, freq=1.0):
+def mf_sinusoid(tf, *, N, amp=1e3, freq=1.0, tau=1.0):
     last_r, r_pred = 0.0, []
     t_full = np.arange(-3 * tau, T)
     r_inputs = Rb + amp * np.sin(2e-3 * np.pi * freq * (t_full + warmup_ms))
@@ -669,7 +671,7 @@ for model, conds in sin_egs.items():
     tf = fitted_curve(softplus_ref, R, rates)
     eg_results[model] = []
     for N, amp in conds:
-        tt, true = sim_sinusoid(model, N=N, amp=amp)
+        tt, true = sim_mean_sinusoid(model, N=N, amp=amp)
         tp, pred = mf_sinusoid(tf, N=N, amp=amp)
         eg_results[model].append((tt, true, tp, pred))
 
@@ -861,3 +863,42 @@ with figure("S3 Estimate Variance") as f:
     ax.set_xlabel("Time Used for Estimate (s)")
     ax.set_ylabel("Standard Deviation (Hz)")
     ax.legend()
+
+
+# %%
+# Figure S4
+# =========
+# How error in the sinusoid following results depends on the mean-field dynamical time
+# constant. Requires the setup from Figure 8.
+
+model = "iaf_psc_delta"
+N = 50
+amp = 5e3
+
+seeds = 10
+freqs_Hz = np.geomspace(0.01, 10, num=51)
+taus = [1, 2, 5, 10]
+errs = np.zeros((len(taus), len(freqs_Hz)))
+
+R, rates = firing_rates(model=model, eta=eta, q=q, dt=dt, T=1e5, sigma_max=10.0)
+tf = fitted_curve(softplus_ref, R, rates)
+
+with tqdm(total=len(freqs_Hz) * seeds) as pbar:
+    for j, freq in enumerate(freqs_Hz):
+        # Compare the model to the average of `seeds` different simulations.
+        tt, true = sim_mean_sinusoid(model, seeds, N=N, amp=amp, freq=freq, pbar=pbar)
+        for i, tau in enumerate(taus):
+            tp, pred = mf_sinusoid(tf, N=N, amp=amp, freq=freq, tau=tau)
+            # Bin the prediction values just like the true values for consistency.
+            pred = pred.reshape((-1, 10)).mean(1)
+            # Use RMS error to get results in units of firing rate.
+            errs[i,j] = np.sqrt(((true - pred) ** 2).mean())
+
+
+with figure("S4 Sinusoid Error") as f:
+    ax = f.gca()
+    for i, tau in enumerate(taus):
+        ax.semilogx(freqs_Hz, errs[i,:], label=f'$\\tau={tau}\,\\text{{ms}}$')
+    ax.legend()
+    ax.set_xlabel("Input Oscillation Frequency (Hz)")
+    ax.set_ylabel("Average RMS Error")
