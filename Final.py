@@ -30,6 +30,12 @@ model_line_styles = {
     "izhikevich": (3, (6, 1)),
     "hh_psc_alpha": (2.5, (5, 1, 1, 1)),
 }
+model_colors = {m: f"C{i}" for i, m in enumerate(model_names)}
+short_model_names = {
+    "iaf_psc_delta": "LIF",
+    "izhikevich": "Izh.",
+    "hh_psc_alpha": "HH",
+}
 
 
 # %%
@@ -715,11 +721,9 @@ with figure(
         axes[i, 0].set_ylim(0, ytop)
         axes[i, 1].set_ylim(0, ytop)
         axes[i, 1].set_yticks([])
+        axes[i, 0].set_ylabel(short_model_names[model] + " F.R. (Hz)")
     axes[0, 0].set_title("10 kHz ± 5 kHz")
     axes[0, 1].set_title("10 kHz ± 10 kHz")
-    axes[0, 0].set_ylabel("LIF F.R. (Hz)")
-    axes[1, 0].set_ylabel("Izh. F.R. (Hz)")
-    axes[2, 0].set_ylabel("HH F.R. (Hz)")
 
     # The last row is filled in with error graphs from eg_errs.
     ax = trends.subplots(1, 1, gridspec_kw=dict(hspace=0.1))
@@ -793,6 +797,74 @@ with figure("S1 LIF Analytical Solutions", save_args=dict(bbox_inches="tight")) 
 
 # %%
 # Figure S2
+# =========
+# Dynamical regimes of the individual neurons, explored in the form of their step
+# response, which lets you see that they don't burst as well as what degree of SFA is
+# present (I sure hope there's SFA in the HH ones, otherwise this is boring!).
+
+from mfsupport import Connectivity
+
+
+class StepInput(Connectivity):
+    def __init__(self, Imax, delay=500.0):
+        self._params = dict(amplitude_times=[delay], amplitude_values=[Imax])
+
+    def connect(self, neurons, model_name=None):
+        self.gen = nest.Create("step_current_generator", 1, self._params)
+        nest.Connect(self.gen, neurons)
+
+
+def run_step(model, current, delay=500.0, T=1e5, recordables=None):
+    return firing_rates(
+        model,
+        1.0,
+        dt=0.1,
+        T=T,
+        M=1,
+        cache=False,
+        R_max=0.0,
+        uniform_input=True,
+        connectivity=StepInput(current, delay=delay),
+        progress_interval=None,
+        return_times=True,
+        recordables=recordables,
+    )[1]
+
+
+def step_response(model, current):
+    """
+    Just run a step response simulation for a given model and input current.
+    """
+    sd = run_step(model, current, T=1e4, recordables=["V_m"])
+    sd.metadata["current"] = current
+    return sd
+
+
+conditions = [("iaf_psc_delta", 380.0), ("izhikevich", 7.0), ("hh_psc_alpha", 626.5)]
+sds = {m: step_response(m, current) for m, current in conditions}
+
+for m in ["iaf_psc_delta", "izhikevich"]:
+    # Set the value of the recorded voltage at each spike time to 20 mV for consistency
+    # across multiple spikes.
+    idces = np.isin(sds[m].metadata["times"], sds[m].train[0])
+    sds[m].metadata["V_m"][idces] = 20
+
+with figure("S2 Step Responses") as f:
+    axes = f.subplots(len(conditions), 1)
+    for i, (ax, (m, fr)) in enumerate(zip(axes, conditions)):
+        t = sds[m].metadata["times"] - 500
+        V = sds[m].metadata["V_m"]
+        ax.plot(t, V, f"C{i}")
+        ax.set_xlim(-50, 500)
+        ax.set_ylabel(short_model_names[m])
+        ax.set_xticks([])
+    ax.set_xlabel("Time (ms)")
+    ax.set_xticks(np.arange(-50, 501, 50))
+    f.supylabel("Membrane Voltage (mV)")
+
+
+# %%
+# Figure S3
 # ========
 # Here we simulate theoretical transfer functions for a grid of values of
 # R and q, fit a single transfer function to all of them, and plot both the
@@ -849,7 +921,7 @@ with figure(
 
 
 # %%
-# Figure S3
+# Figure S4
 # =========
 # Variance in the firing rate estimate as a function of the time used to
 # calculate that estimate, compared to the theoretical value.
@@ -896,7 +968,15 @@ with figure("S3 Estimate Variance") as f:
 
 
 # %%
-# Figure S4
+# Figure S5
+# =========
+# How three different delays don't really change the results because the rasters are the
+# same and look equally chaotic. Stretch goal: also add one spike to show that they're
+# chaotic regardless of the delay.
+
+
+# %%
+# Figure S6
 # =========
 # How error in the sinusoid following results depends on the mean-field dynamical time
 # constant. Requires the setup from Figure 8.
@@ -925,7 +1005,7 @@ with tqdm(total=len(freqs_Hz) * seeds) as pbar:
             errs[i, j] = np.sqrt(((true - pred) ** 2).mean())
 
 
-with figure("S4 Sinusoid Error") as f:
+with figure("S6 Sinusoid Error") as f:
     ax = f.gca()
     for i, tau in enumerate(taus):
         ax.semilogx(freqs_Hz, errs[i, :], label=f"$\\tau={tau}\,\\text{{ms}}$")
