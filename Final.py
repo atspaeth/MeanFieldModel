@@ -7,7 +7,7 @@ from itertools import zip_longest
 import matplotlib.pyplot as plt
 import nest
 import numpy as np
-from scipy import optimize
+from scipy import optimize, signal
 from tqdm import tqdm
 
 from mfsupport import (AnnealedAverageConnectivity, RandomConnectivity, figure,
@@ -968,6 +968,85 @@ with figure("S3 Estimate Variance") as f:
 # How three different delays don't really change the results because the rasters are the
 # same and look equally chaotic. Stretch goal: also add one spike to show that they're
 # chaotic regardless of the delay.
+
+
+eta = 0.8
+M = 1000
+dt = 0.1
+T = 500.
+model = "iaf_psc_delta"
+
+N = 75
+Rb = 10e3
+q = 3.0
+
+delays = [dt, 5.5, 1 + nest.random.uniform_int(10)]
+delaynames = ["No Delay", "Mean Delay", "Random Delay"]
+
+# Get a mean-field prediction for this condition.
+R, rates = firing_rates(model, q, eta=eta, dt=dt, T=1e5, sigma_max=10.0)
+tf = fitted_curve(softplus_ref, R, rates)
+F, Finv = parametrized_F_Finv(tf.p, Rb, N, q)
+[theo], () = find_fps(40, F, Finv)
+
+# Run simulations for three different delay conditions.
+units = 1 + np.sort(np.random.choice(M, size=3, replace=False))
+sds = []
+for delay in delays:
+    connectivity = RandomConnectivity(N, eta, q, delay=delay)
+    R, sd = firing_rates(
+        model,
+        q,
+        eta=eta,
+        dt=dt,
+        T=T,
+        M=M,
+        R_max=Rb,
+        uniform_input=True,
+        seed=1234,
+        cache=False,
+        connectivity=connectivity,
+        return_times=True,
+        recordables=["V_m"],
+    )
+    # Gather the voltage traces for the desired units, then resample to 1kHz.
+    sd.metadata["V"] = signal.decimate(
+        [sd.metadata["V_m"][sd.metadata["senders"] == u] for u in units], 10
+    )
+    # Put the spike peaks into that saved voltage trace.
+    for i,u in enumerate(units):
+        sd.metadata["V"][i, np.int64(sd.train[u - 1]) - 1] = 20
+    sds.append(sd)
+
+with figure("S5 Population Dynamics", figsize=(5, 3)) as f:
+    axes = f.subplots(1 + len(units), 3, height_ratios=[1] + [1/len(units)] * len(units))
+    twintop = [axes[0, i].twinx() for i in range(3)]
+    for i, sd in enumerate(sds):
+        # Raster plot with population rate overlaid.
+        idces, times = sd.idces_times()
+        axes[0, i].plot(times, idces + 0.5, "k,")
+        poprate = sd.binned(1)
+        twintop[i].plot(poprate, "purple")
+        twintop[i].axhline(theo, color="k", ls=":")
+        # Plot traces for the units selected at the top.
+        for j, u in enumerate(units):
+            axes[1 + j, i].plot(sd.metadata["V"][j, :])
+    # And now all the rest is just axis formatting.
+            axes[j, i].set_xticks([])
+            axes[1 + j, 0].set_yticks([-100, 0])
+        twintop[i].set_ylim(0, 150)
+        axes[0, i].set_ylim(0, M)
+        axes[-1, i].set_xlabel("Time (ms)")
+        axes[0, i].set_title(delaynames[i])
+        for ax in axes[:, i]:
+            ax.set_xlim(0, T)
+    for i in range(2):
+        for j in range(1 + len(units)):
+            axes[j, i + 1].set_yticks([])
+        twintop[i].set_yticks([])
+    axes[0, 0].set_ylabel("Neuron Unit")
+    twintop[-1].set_ylabel("Population Rate (Hz)")
+    axes[int(len(units) / 2) + 1, 0].set_ylabel("Membrane Voltage (mV)")
 
 
 # %%
