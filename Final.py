@@ -1,8 +1,7 @@
 # Final Figures
 #
-# This script generates all the figures from our new manuscript
-# ``Model-agnostic neural mean-field with the Refractory SoftPlus
-# transfer function''
+# This script generates all the figures from our new manuscript ``Model-agnostic neural
+# mean-field with the Refractory SoftPlus transfer function''
 from itertools import zip_longest
 
 import matplotlib.pyplot as plt
@@ -41,8 +40,8 @@ short_model_names = {
 # %%
 # Figure 2
 # ========
-# The behavior of several different candidate transfer functions in
-# comparison to a single set of refractory data with default parameters.
+# The behavior of several different candidate transfer functions in comparison to a
+# single set of refractory data with default parameters.
 
 T = 1e5
 q = 1.0
@@ -85,9 +84,8 @@ with figure("02 Refractory Softplus Extrapolation") as f:
 # %%
 # Figure 3
 # ========
-# Three consistency curves for the LIF neuron, demonstrating that the model
-# predicts a saddle-node bifurcation that we're going to be able to observe
-# in the next set of simulations...
+# Three consistency curves for the LIF neuron, demonstrating that the model predicts a
+# saddle-node bifurcation when the background input is sufficiently low.
 
 Ns = [25, 51, 75]
 
@@ -154,8 +152,8 @@ with figure("03 Consistency Condition") as f:
 # %%
 # Figure 4
 # ========
-# Convergence of the error as the number of neurons included in the fit
-# increases, and as the total simulation time increases.
+# Convergence of the error as the number of neurons included in the fit increases, and
+# as the total simulation time increases.
 
 dt = 0.1
 q = 1.0
@@ -235,8 +233,8 @@ for m in model_names:
 # %%
 # Figure 5
 # ========
-# This figure demonstrates that Refractory SoftPlus can be fitted to
-# a variety of different neuron configurations.
+# Demonstration that Refractory SoftPlus can be fitted to a variety of different neuron
+# configurations via randomized parameterization of each model.
 
 T = 1e5
 q = 1.0
@@ -308,11 +306,10 @@ with figure(
 # Figure 6
 # ========
 # Simulated vs. theoretical fixed points in two different LIF networks.
-# First is the best-case scenario, demonstrating only a few percent error in
-# a high-σ condition, even for fairly large FR. Second is a case with more
-# recurrence, where the feedback behavior is worse because N is a bit lower
-# relative to the amount of input being expected from it, so firing rates
-# are systematically underestimated.
+# First is the best-case scenario, demonstrating only a few percent error in a high-σ
+# condition, even for fairly large FR. Second is a case with more recurrence, where the
+# feedback behavior is worse because N is a bit lower relative to the amount of input
+# being expected from it, so firing rates are systematically underestimated.
 
 eta = 0.8
 M = 10000
@@ -443,10 +440,9 @@ with figure("06 Sim Fixed Points") as f:
 # %%
 # Figure 7
 # ========
-# Finite size effects on the fixed point of the recurrent network from the
-# first example of the bifurcation analysis figure. The location of the
-# equilibrium doesn't depend on M, but the variability of the firing rate
-# around it certainly does.
+# Finite size effects on the fixed point of the recurrent network from the first example
+# of the bifurcation analysis figure. The location of the equilibrium doesn't depend on
+# M, but the variability of the firing rate around it certainly does.
 
 eta = 0.8
 dt = 0.1
@@ -540,8 +536,8 @@ with figure("07 Finite Size Effects", figsize=[4.5, 3.0]) as f:
 # %%
 # Table 2
 # =======
-# Compute the practical stability of the fixed point for the N = 55 case with both
-# fixed and annealed-average connectivity.
+# Compute the practical stability of the fixed point for the N = 55 case with both fixed
+# and annealed-average connectivity.
 
 N = 55
 Rb = 0.1e3
@@ -738,9 +734,8 @@ with figure(
 # %%
 # Figure S1
 # ========
-# Compare the RS79 analytical solution to simulated firing rates for
-# a single neuron to demonstrate that it works in the diffusion limit but
-# not away from it.
+# Compare the RS79 analytical solution to simulated firing rates for a single neuron to
+# demonstrate that it works in the diffusion limit but not away from it.
 
 T = 1e5
 model = "iaf_psc_delta"
@@ -798,9 +793,9 @@ with figure("S1 LIF Analytical Solutions", save_args=dict(bbox_inches="tight")) 
 # %%
 # Figure S2
 # =========
-# Dynamical regimes of the individual neurons, explored in the form of their step
-# response, which lets you see that they don't burst as well as what degree of SFA is
-# present (I sure hope there's SFA in the HH ones, otherwise this is boring!).
+# Dynamical regimes of the individual neurons, explored in the form of their response to
+# a step current input, which lets you see that they don't burst as well as what degree
+# of SFA is present.
 
 from mfsupport import Connectivity
 
@@ -866,9 +861,9 @@ with figure("S2 Step Responses") as f:
 # %%
 # Figure S3
 # ========
-# Here we simulate theoretical transfer functions for a grid of values of
-# R and q, fit a single transfer function to all of them, and plot both the
-# transfer function and its error as a 3D surface.
+# Simulate the transfer functions for several values of q, fit a single q-dependent
+# transfer function to all of them, and finally plot the transfer function and its error
+# as a 3D surface.
 
 model = "iaf_psc_delta"
 Tmax = 1e7
@@ -923,8 +918,8 @@ with figure(
 # %%
 # Figure S4
 # =========
-# Variance in the firing rate estimate as a function of the time used to
-# calculate that estimate, compared to the theoretical value.
+# Variance in the firing rate estimate as a function of the time used to calculate that
+# estimate, compared to the theoretical value.
 
 dt = 0.1
 q = 1.0
