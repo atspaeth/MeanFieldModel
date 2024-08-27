@@ -10,10 +10,23 @@ import numpy as np
 from scipy import optimize, signal
 from tqdm import tqdm
 
-from mfsupport import (AnnealedAverageConnectivity, RandomConnectivity, figure,
-                       find_fps, firing_rates, fitted_curve,
-                       generalization_errors, norm_err, parametrized_F_Finv,
-                       relu, rs79, sigmoid, softplus_ref, softplus_ref_q_dep)
+from mfsupport import (
+    AnnealedAverageConnectivity,
+    Connectivity,
+    RandomConnectivity,
+    figure,
+    find_fps,
+    firing_rates,
+    fitted_curve,
+    generalization_errors,
+    norm_err,
+    parametrized_F_Finv,
+    relu,
+    rs79,
+    sigmoid,
+    softplus_ref,
+    softplus_ref_q_dep,
+)
 
 plt.ion()
 if "elsevier" in plt.style.available:
@@ -212,7 +225,7 @@ with figure("04 Convergence") as f:
     byT.set_xlabel("Simulation Time (s)")
 
     byM.set_ylabel("Normalized RMSE")
-    byM.set_yticks([2e-2, 0.6e-2, 0.2e-2], ["2\%", "0.6\%", "0.2\%"])
+    byM.set_yticks([2e-2, 0.6e-2, 0.2e-2], ["2\\%", "0.6\\%", "0.2\\%"])
     byM.set_ylim(0.0015, 0.027)
     byT.set_yticks([])
     byT.set_yticks([], minor=True)
@@ -278,7 +291,7 @@ with figure(
         tf[i].set_ylabel("FR (Hz)")
         err[i].set_ylabel("Error")
         err[i].set_ylim(-0.0325, 0.0325)
-        err[i].set_yticks([-0.03, 0, 0.03], ["-3\%", "0\%", "3\%"])
+        err[i].set_yticks([-0.03, 0, 0.03], ["-3\\%", "0\\%", "3\\%"])
 
         bins = np.linspace(0.004, 0.016, 41)
         hist.hist(
@@ -299,7 +312,7 @@ with figure(
 
     hist.set_ylabel("Count")
     hist.set_xlabel("Normalized Root-Mean-Square Error")
-    hist.set_xticklabels([f"{100*x:.1f}\%" for x in hist.get_xticks()])
+    hist.set_xticklabels([f"{100*x:.1f}\\%" for x in hist.get_xticks()])
 
 
 # %%
@@ -389,7 +402,7 @@ with tqdm(total=13 * len(N_sim) * len(conditions), desc="Sim") as pbar:
 
 
 def plotkw(Rb, q, aa):
-    qlb = f"$q=\qty{{{q}}}{{mV}}$"
+    qlb = f"$q=\\qty{{{q}}}{{mV}}$"
     if Rb > 1e3:
         Rlb = f"$R_\\mathrm{{b}} = \\qty{{{round(Rb/1e3)}}}{{kHz}}$"
     else:
@@ -595,7 +608,7 @@ with tqdm(total=N_samples * (sum(Ms) + sum(Ms_aa)), unit="neurons") as pbar:
 
 print("Practical stability of fixed connectivity:")
 for M, s, sa in zip_longest(Ms, stability, stability_aa, fillvalue=1):
-    print(f"${M = :6d}$ & {s:.0%} & {sa:.0%} \\\\".replace("%", "\%"))
+    print(f"${M = :6d}$ & {s:.0%} & {sa:.0%} \\\\".replace("%", "\\%"))
 
 
 # %%
@@ -771,7 +784,7 @@ with figure("S1 LIF Analytical Solutions", save_args=dict(bbox_inches="tight")) 
         axe.set_xlabel("Mean Presynaptic Rate $r$ (Hz)")
         axr.set_xticks([])
 
-    axes[1, 0].set_yticks([-0.1, -0.05, 0.0], ["-10\%", "-5\%", "0\%"])
+    axes[1, 0].set_yticks([-0.1, -0.05, 0.0], ["-10\\%", "-5\\%", "0\\%"])
     for ax in axes.ravel():
         ax.set_xlim(0, x.max())
     for l, r in axes:
@@ -796,8 +809,6 @@ with figure("S1 LIF Analytical Solutions", save_args=dict(bbox_inches="tight")) 
 # Dynamical regimes of the individual neurons, explored in the form of their response to
 # a step current input, which lets you see that they don't burst as well as what degree
 # of SFA is present.
-
-from mfsupport import Connectivity
 
 
 class StepInput(Connectivity):
@@ -908,7 +919,7 @@ with figure(
         100 * np.array([(rateses[q] - ratehats[q]) / ratehats[q].max() for q in qs]).T,
         **surfargs,
     )
-    err.set_zlabel("Rate Error (\%)")
+    err.set_zlabel("Rate Error (\\%)")
     err.set_ylabel("$r$ (Hz)")
     err.set_xlabel("$q$ (mV)")
     err.zaxis.set_major_formatter(plt.matplotlib.ticker.PercentFormatter(decimals=0))
@@ -973,7 +984,7 @@ with figure("S3 Estimate Variance") as f:
 eta = 0.8
 M = 1000
 dt = 0.1
-T = 500.
+T = 500.0
 model = "iaf_psc_delta"
 
 N = 75
@@ -1014,12 +1025,14 @@ for delay in delays:
         [sd.metadata["V_m"][sd.metadata["senders"] == u] for u in units], 10
     )
     # Put the spike peaks into that saved voltage trace.
-    for i,u in enumerate(units):
+    for i, u in enumerate(units):
         sd.metadata["V"][i, np.int64(sd.train[u - 1]) - 1] = 20
     sds.append(sd)
 
 with figure("S5 Population Dynamics", figsize=(5, 3)) as f:
-    axes = f.subplots(1 + len(units), 3, height_ratios=[1] + [1/len(units)] * len(units))
+    axes = f.subplots(
+        1 + len(units), 3, height_ratios=[1] + [1 / len(units)] * len(units)
+    )
     twintop = [axes[0, i].twinx() for i in range(3)]
     for i, sd in enumerate(sds):
         # Raster plot with population rate overlaid.
@@ -1031,7 +1044,7 @@ with figure("S5 Population Dynamics", figsize=(5, 3)) as f:
         # Plot traces for the units selected at the top.
         for j, u in enumerate(units):
             axes[1 + j, i].plot(sd.metadata["V"][j, :])
-    # And now all the rest is just axis formatting.
+            # And now all the rest is just axis formatting.
             axes[j, i].set_xticks([])
             axes[1 + j, 0].set_yticks([-100, 0])
         twintop[i].set_ylim(0, 150)
@@ -1082,7 +1095,7 @@ with tqdm(total=len(freqs_Hz) * seeds) as pbar:
 with figure("S6 Sinusoid Error") as f:
     ax = f.gca()
     for i, tau in enumerate(taus):
-        ax.semilogx(freqs_Hz, errs[i, :], label=f"$\\tau={tau}\,\\text{{ms}}$")
+        ax.semilogx(freqs_Hz, errs[i, :], label=f"$\\tau={tau}\\,\\text{{ms}}$")
     ax.legend()
     ax.set_xlabel("Input Oscillation Frequency (Hz)")
     ax.set_ylabel("Average RMS Error")
