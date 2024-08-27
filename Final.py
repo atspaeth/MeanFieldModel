@@ -12,8 +12,8 @@ from tqdm import tqdm
 
 from mfsupport import (
     AnnealedAverageConnectivity,
-    Connectivity,
     RandomConnectivity,
+    StepInput,
     figure,
     find_fps,
     firing_rates,
@@ -667,7 +667,7 @@ def mf_sinusoid(tf, *, N, amp=1e3, freq=1.0, tau=1.0):
     last_r, r_pred = 0.0, []
     t_full = np.arange(-3 * tau, T)
     r_inputs = Rb + amp * np.sin(2e-3 * np.pi * freq * (t_full + warmup_ms))
-    for i, r_input in enumerate(r_inputs):
+    for r_input in r_inputs:
         r_star = tf(r_input + N * last_r)
         rdot = (r_star - last_r) / tau
         last_r += rdot  # here dt is 1 ms
@@ -811,21 +811,15 @@ with figure("S1 LIF Analytical Solutions", save_args=dict(bbox_inches="tight")) 
 # of SFA is present.
 
 
-class StepInput(Connectivity):
-    def __init__(self, Imax, delay=500.0):
-        self._params = dict(amplitude_times=[delay], amplitude_values=[Imax])
-
-    def connect(self, neurons, model_name=None):
-        self.gen = nest.Create("step_current_generator", 1, self._params)
-        nest.Connect(self.gen, neurons)
-
-
-def run_step(model, current, delay=500.0, T=1e5, recordables=None):
-    return firing_rates(
+def step_response(model, current):
+    """
+    Run a step response simulation for a given model and input current.
+    """
+    _, sd = firing_rates(
         model,
         1.0,
         dt=0.1,
-        T=T,
+        T=1e4,
         M=1,
         cache=False,
         R_max=0.0,
@@ -833,15 +827,8 @@ def run_step(model, current, delay=500.0, T=1e5, recordables=None):
         connectivity=StepInput(current, delay=delay),
         progress_interval=None,
         return_times=True,
-        recordables=recordables,
-    )[1]
-
-
-def step_response(model, current):
-    """
-    Just run a step response simulation for a given model and input current.
-    """
-    sd = run_step(model, current, T=1e4, recordables=["V_m"])
+        recordables=["V_m"],
+    )
     sd.metadata["current"] = current
     return sd
 

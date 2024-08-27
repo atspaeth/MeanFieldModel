@@ -313,7 +313,10 @@ def sim_neurons_nest_eta(
 
     # Create SpikeData and trim off the warmup time.
     return ba.SpikeData.from_nest(
-        rec, neurons, length=T + warmup_time, metadata=meter.events if recordables else {}
+        rec,
+        neurons,
+        length=T + warmup_time,
+        metadata=meter.events if recordables else {},
     ).subtime(warmup_time, ...)
 
 
@@ -447,6 +450,15 @@ class AnnealedAverageConnectivity(Connectivity):
                     delay=self.delay,
                 ),
             )
+
+
+class StepInput(Connectivity):
+    def __init__(self, Imax, delay=500.0):
+        self._params = dict(amplitude_times=[delay], amplitude_values=[Imax])
+
+    def connect(self, neurons, model_name=None):
+        self.gen = nest.Create("step_current_generator", 1, self._params)
+        nest.Connect(self.gen, neurons)
 
 
 @contextmanager
