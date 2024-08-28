@@ -68,12 +68,12 @@ def softplus_ref_inv(rs, x0, b, c, t_ref):
     return softplus_inv(_refractory_inv(rs, t_ref), x0, b, c)
 
 
-def relu(R, a, b, R0):
-    return a / b**2 * np.maximum(0, b**2 * (np.sqrt(R) - R0))
+def relu(R, x0, a):
+    return a * np.maximum(0, np.sqrt(R) - x0)
 
 
-def sigmoid(R, a, b, R0):
-    return a / b**2 * special.expit(b**2 * (np.sqrt(R / 1e3) - R0))
+def sigmoid(R, x0, a, b):
+    return a * special.expit(b**2 * np.sqrt(R / 1e3) - x0)
 
 
 def parametrized_F_Finv(μ_softplus, R_background, N, q=None):
